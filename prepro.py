@@ -1,6 +1,8 @@
 import torch
 import torch.nn as F
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader, TensorDataset
+from transformers.models.bert import tokenization_bert
 from model.pretrain_vcr import UniterForPretrainingForVCR
 from transformers import BertTokenizer
 
@@ -8,7 +10,7 @@ import json
 import numpy as np
 import pandas as pd
 import pickle
-from toolz.utils import unzip
+from toolz.sandbox import unzip
 
 annotPATH = '/home/vcr/vcr1annots/'
 imagePATH = '/home/vcr/vcr1images/'
@@ -52,6 +54,10 @@ box is x1y1 x2y2 format
 uniter needs xyxywha format
 '''
 
+'''
+F.kl_div(F.log_softmax(k, 0), F.softmax(k1, 0), reduction="none").mean()
+'''
+
 
 class PretrainDataForVCR(Dataset):
     def __init__(self, data_type='train'):
@@ -76,8 +82,8 @@ class PretrainDataForVCR(Dataset):
         
         token_type_ids = [0 for _ in range(len(question['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
 
-        with open(imagePATH + self.data.metadata_fn[index], 'r') as f:
-            meta = json.load(f)
+        # with open(imagePATH + self.data.metadata_fn[index], 'r') as f:
+        #     meta = json.load(f)
         with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
             feature = pickle.load(f)
         
@@ -93,20 +99,77 @@ class PretrainDataForVCR(Dataset):
         pos = torch.cat((pos, height.unsqueeze(-1)), dim=-1)
         pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
 
-        return (torch.FloatTensor(tokenzied), 
+        return (torch.FloatTensor(tokenzied),
                 torch.FloatTensor(token_type_ids),
                 torch.FloatTensor(attention_mask),
-                torch.FloatTensor(roi_feature),
-                torch.FloatTensor(pos))
+                torch.FloatTensor(roi_feature).squeeze(0),
+                torch.FloatTensor(pos).squeeze(0))
 
-def collate(inputs):
-    (input_ids, type_ids, att_mask, img_feat, img_pos) = map(list, unzip(input))
+def pad_tensors(tensors, lens=None, pad=0):
+    """B x [T, ...]"""
+    if lens is None:
+        lens = [t.size(0) for t in tensors]
+    max_len = max(lens)
+    bs = len(tensors)
+    hid = tensors[0].size(-1)
+    dtype = tensors[0].dtype
+    output = torch.zeros(bs, max_len, hid, dtype=dtype)
+    if pad:
+        output.data.fill_(pad)
+    for i, (t, l) in enumerate(zip(tensors, lens)):
+        output.data[i, :l, ...] = t.data
+    return output
+
+def get_gather_index(txt_lens, num_bbs, batch_size, max_len, out_size):
+    assert len(txt_lens) == len(num_bbs) == batch_size
+    gather_index = torch.arange(0, out_size, dtype=torch.long,
+                                ).unsqueeze(0).repeat(batch_size, 1)
+
+    for i, (tl, nbb) in enumerate(zip(txt_lens, num_bbs)):
+        gather_index.data[i, tl:tl+nbb] = torch.arange(max_len, max_len+nbb,
+                                                       dtype=torch.long).data
+    return gather_index
+
+
+def collate(batch):
+    (input_ids, txt_type_ids, attn_masks, img_feat, img_pos) = map(list, unzip(batch))
+    for i in range(3):
+        print(img_feat[i].shape)
+        print(img_pos[i].shape)
+        print(input_ids[i].shape)
+
+    txt_lens = [i.size(0) for i in input_ids]
+    input_ids = pad_sequence(input_ids, batch_first=True, padding_value=0)
+    txt_type_ids = pad_sequence(txt_type_ids, batch_first=True, padding_value=0)
+    position_ids = torch.arange(0, input_ids.size(1), dtype=torch.long).unsqueeze(0)
+    
+    num_bbs = [f.size(0) for f in img_feat]
+    img_feat = pad_tensors(img_feat, num_bbs)
+    img_pos = pad_tensors(img_pos, num_bbs)
+
+    attn_masks = pad_sequence(attn_masks, batch_first=True, padding_value=0)
+
+    bs, max_tl = input_ids.size()
+    out_size = attn_masks.shape[1]
+
+    gather_index = get_gather_index(txt_lens, num_bbs, bs, max_tl, out_size)
+    print(gather_index)
+
+    batch = {'input_ids': input_ids,
+             'txt_type_ids': txt_type_ids,
+             'position_ids': position_ids,
+             'img_feat': img_feat,
+             'img_pos_feat': img_pos,
+             'attn_masks': attn_masks,
+             'gather_index': gather_index}
+
+    return batch
 
 
 dataset = PretrainDataForVCR(data_type='val')
-dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+dataloader = DataLoader(dataset, batch_size=3, shuffle=True, collate_fn=collate)
 
 for i, batch in enumerate(dataloader):
     print('New Batch! ', i)
-    print(batch)
+    #print(batch)
     if i == 2: break

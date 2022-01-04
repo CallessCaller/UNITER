@@ -1161,6 +1161,7 @@ class ROIOutputs(object):
 
     def _predict_attrs(self, attr_logits, preds_per_image):
         attr_logits = attr_logits[..., :-1].softmax(-1)
+        print(attr_logits.shape)
         attr_probs, attrs = attr_logits.max(-1)
         return attr_probs.split(preds_per_image, dim=0), attrs.split(preds_per_image, dim=0)
 
