@@ -12,8 +12,8 @@ import pandas as pd
 import pickle
 from toolz.sandbox import unzip
 
-annotPATH = '/home/vcr/vcr1annots/'
-imagePATH = '/home/vcr/vcr1images/'
+annotPATH = '/mnt3/user16/vcr/vcr1annots/'
+imagePATH = '/mnt3/user16/vcr/vcr1images/'
 
 '''
 def forward(self, batch, task, compute_loss=True):
