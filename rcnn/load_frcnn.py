@@ -33,7 +33,7 @@ output_dict = frcnn(
     return_tensors="pt",
 )
 
-print(images.shape, sizes, scales_yx)
+print(output_dict['softlabels'][0].shape)
 print('hello')
 
 # output_dict['roi_features'].shape = [2, 36, 2048]

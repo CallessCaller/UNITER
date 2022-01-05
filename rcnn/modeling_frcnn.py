@@ -130,7 +130,7 @@ def do_nms(boxes, scores, image_shape, score_thresh, nms_thresh, mind, maxd):
     if keep.shape[-1] >= mind and keep.shape[-1] <= maxd:
         max_boxes, max_scores = max_boxes[keep], max_scores[keep]
         classes = max_classes[keep]
-        return max_boxes, max_scores, classes, keep
+        return max_boxes, max_scores, classes, keep, scores[keep]
     else:
         return None
 
@@ -1161,7 +1161,7 @@ class ROIOutputs(object):
 
     def _predict_attrs(self, attr_logits, preds_per_image):
         attr_logits = attr_logits[..., :-1].softmax(-1)
-        print(attr_logits.shape)
+        #print(attr_logits.shape)
         attr_probs, attrs = attr_logits.max(-1)
         return attr_probs.split(preds_per_image, dim=0), attrs.split(preds_per_image, dim=0)
 
@@ -1198,7 +1198,7 @@ class ROIOutputs(object):
                     self.max_detections,
                 )
                 if outputs is not None:
-                    max_boxes, max_scores, classes, ids = outputs
+                    max_boxes, max_scores, classes, ids, scores = outputs
                     break
 
             if scales is not None:
@@ -1214,10 +1214,13 @@ class ROIOutputs(object):
                     attrs[ids],
                     attr_probs[ids],
                     features[i][ids],
+                    scores
                 )
             )
-        boxes, classes, class_probs, attrs, attr_probs, roi_features = map(list, zip(*final_results))
-        return boxes, classes, class_probs, attrs, attr_probs, roi_features
+    
+        boxes, classes, class_probs, attrs, attr_probs, roi_features, all_scores = map(list, zip(*final_results))
+    
+        return boxes, classes, class_probs, attrs, attr_probs, roi_features, all_scores
 
     def training(self, obj_logits, attr_logits, box_deltas, pred_boxes, features, sizes):
         pass
@@ -1882,7 +1885,7 @@ class GeneralizedRCNN(nn.Module):
         obj_logits, attr_logits, box_deltas, feature_pooled = self.roi_heads(features, proposal_boxes, gt_boxes)
 
         # prepare FRCNN Outputs and select top proposals
-        boxes, classes, class_probs, attrs, attr_probs, roi_features = self.roi_outputs(
+        boxes, classes, class_probs, attrs, attr_probs, roi_features, all_scores = self.roi_outputs(
             obj_logits=obj_logits,
             attr_logits=attr_logits,
             box_deltas=box_deltas,
@@ -1902,6 +1905,7 @@ class GeneralizedRCNN(nn.Module):
         preds_per_image = torch.tensor([p.size(0) for p in boxes])
         boxes = pad_list_tensors(boxes, preds_per_image, **subset_kwargs)
         classes = pad_list_tensors(classes, preds_per_image, **subset_kwargs)
+        all_scores = pad_list_tensors(all_scores, preds_per_image, **subset_kwargs)
         class_probs = pad_list_tensors(class_probs, preds_per_image, **subset_kwargs)
         attrs = pad_list_tensors(attrs, preds_per_image, **subset_kwargs)
         attr_probs = pad_list_tensors(attr_probs, preds_per_image, **subset_kwargs)
@@ -1921,5 +1925,6 @@ class GeneralizedRCNN(nn.Module):
                 "preds_per_image": preds_per_image,
                 "roi_features": roi_features,
                 "normalized_boxes": normalized_boxes,
+                "softlabels": all_scores
             }
         )
