@@ -249,6 +249,8 @@ class UniterTextEmbeddings(nn.Module):
 class UniterImageEmbeddings(nn.Module):
     def __init__(self, config, img_dim):
         super().__init__()
+        self.img_dim = img_dim
+        self.config = config
         self.img_linear = nn.Linear(img_dim, config.hidden_size)
         self.img_layer_norm = FusedLayerNorm(config.hidden_size, eps=1e-12)
         self.pos_layer_norm = FusedLayerNorm(config.hidden_size, eps=1e-12)
@@ -264,7 +266,7 @@ class UniterImageEmbeddings(nn.Module):
             self.mask_embedding.weight.data[0, :].fill_(0)
             mask = self.mask_embedding(img_masks.long())
             img_feat = img_feat + mask
-
+        print(self.img_dim, self.config.hidden_size, img_feat.shape)
         transformed_im = self.img_layer_norm(self.img_linear(img_feat))
         transformed_pos = self.pos_layer_norm(self.pos_linear(img_pos_feat))
         embeddings = transformed_im + transformed_pos + type_embeddings

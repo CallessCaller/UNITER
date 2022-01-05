@@ -259,18 +259,19 @@ def collate(batch):
 
     gather_index = get_gather_index(txt_lens, num_bbs, bs, max_tl, out_size)
 
-    batch = {'input_ids': input_ids,
-             'txt_type_ids': txt_type_ids,
-             'position_ids': position_ids,
-             'img_feat': img_feat,
-             'img_pos_feat': img_pos,
-             'attn_masks': attn_masks,
-             'gather_index': gather_index,
-             'masked_input_ids': maksed_tokenzied,
-             'txt_label': txt_label,
-             'label_targets': label_targets,
-             'masked_img_feat': masked_img_feat,
-             'feat_targets': feat_target}
+    batch = {'input_ids': input_ids.long(),
+             'txt_type_ids': txt_type_ids.long(),
+             'position_ids': position_ids.long(),
+             'img_feat': img_feat.long(),
+             'img_pos_feat': img_pos.long(),
+             'attn_masks': attn_masks.long(),
+             'gather_index': gather_index.long(),
+             'masked_input_ids': maksed_tokenzied.long(),
+             'txt_labels': txt_label.long(),
+             'label_targets': label_targets.long(),
+             'masked_img_feat': masked_img_feat.long(),
+             'feat_targets': feat_target.long(),
+             'img_mask_tgt': img_mask_tgt.long()}
 
     return batch
 

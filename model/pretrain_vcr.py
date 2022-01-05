@@ -33,32 +33,32 @@ class UniterForPretrainingForVCR(UniterForPretraining):
 
     def forward(self, batch, task, compute_loss=True):
         batch = defaultdict(lambda: None, batch)
-        input_ids = batch['input_ids']
-        position_ids = batch['position_ids']
-        img_feat = batch['img_feat']
-        img_pos_feat = batch['img_pos_feat']
-        attention_mask = batch['attn_masks']
-        gather_index = batch['gather_index']
-        txt_type_ids = batch['txt_type_ids']
+        input_ids = batch['input_ids'].cuda()
+        position_ids = batch['position_ids'].cuda()
+        img_feat = batch['img_feat'].cuda()
+        img_pos_feat = batch['img_pos_feat'].cuda()
+        attention_mask = batch['attn_masks'].cuda()
+        gather_index = batch['gather_index'].cuda()
+        txt_type_ids = batch['txt_type_ids'].cuda()
         if task == 'mlm':
-            txt_labels = batch['txt_labels']
+            txt_labels = batch['txt_labels'].cuda()
             return self.forward_mlm(input_ids, position_ids,
                                     txt_type_ids, img_feat, img_pos_feat,
                                     attention_mask, gather_index,
                                     txt_labels, compute_loss)
         elif task == 'mrfr':
-            img_mask_tgt = batch['img_mask_tgt']
-            img_masks = batch['img_masks']
-            mrfr_feat_target = batch['feat_targets']
+            img_mask_tgt = batch['img_mask_tgt'].cuda()
+            img_masks = batch['img_masks'].cuda()
+            mrfr_feat_target = batch['feat_targets'].cuda()
             return self.forward_mrfr(input_ids, position_ids,
                                      txt_type_ids, img_feat, img_pos_feat,
                                      attention_mask, gather_index,
                                      img_masks, img_mask_tgt,
                                      mrfr_feat_target, compute_loss)
         elif task.startswith('mrc'):
-            img_mask_tgt = batch['img_mask_tgt']
-            img_masks = batch['img_masks']
-            mrc_label_target = batch['label_targets']
+            img_mask_tgt = batch['img_mask_tgt'].cuda()
+            img_masks = batch['img_masks'].cuda()
+            mrc_label_target = batch['label_targets'].cuda()
             return self.forward_mrc(input_ids, position_ids,
                                     txt_type_ids, img_feat, img_pos_feat,
                                     attention_mask, gather_index,
