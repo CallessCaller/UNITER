@@ -15,8 +15,8 @@ from toolz.sandbox import unzip
 
 annotPATH = '/mnt3/user16/vcr/vcr1annots/'
 imagePATH = '/mnt3/user16/vcr/vcr1images/'
-# annotPATH = '/home/vcr/vcr1annots/'
-# imagePATH = '/home/vcr/vcr1images/'
+annotPATH = '/home/vcr/vcr1annots/'
+imagePATH = '/home/vcr/vcr1images/'
 
 '''
 def forward(self, batch, task, compute_loss=True):
@@ -186,7 +186,7 @@ class PretrainDataForVCR(Dataset):
         masked_token_r, txt_label_r = random_word(rationale['input_ids'][1:-1])
         
         maksed_tokenzied = [101] + masked_token_q + [102] + masked_token_a + [102] + masked_token_r + [102]
-        txt_label = [-1] + txt_label_q + [-1] + txt_label_a + [-1] + txt_label_r
+        txt_label = [-1] + txt_label_q + [-1] + txt_label_a + [-1] + txt_label_r + [-1]
 
         #preprocessing
         tokenzied = question['input_ids'] + answer['input_ids'][1:] + rationale['input_ids'][1:]
@@ -262,17 +262,17 @@ def collate(batch):
     batch = {'input_ids': input_ids.long(),
              'txt_type_ids': txt_type_ids.long(),
              'position_ids': position_ids.long(),
-             'img_feat': img_feat.long(),
-             'img_pos_feat': img_pos.long(),
+             'img_feat': img_feat.float(),
+             'img_pos_feat': img_pos.float(),
              'attn_masks': attn_masks.long(),
              'gather_index': gather_index.long(),
              'masked_input_ids': maksed_tokenzied.long(),
              'txt_labels': txt_label.long(),
              'label_targets': label_targets.long(),
-             'masked_img_feat': masked_img_feat.long(),
+             'masked_img_feat': masked_img_feat.float(),
              'feat_targets': feat_target.long(),
              'img_mask_tgt': img_mask_tgt.long(),
-             'img_masks': img_mask.long()}
+             'img_masks': img_mask}
 
     return batch
 

@@ -23,7 +23,7 @@ class UniterForPretrainingForVCR(UniterForPretraining):
     def init_word_embedding(self, num_special_tokens):
         orig_word_num = self.uniter.embeddings.word_embeddings.weight.size(0)
         new_emb = nn.Embedding(
-            orig_word_num + num_special_tokens, self.uniter.config.hidden_size)
+            30522, self.uniter.config.hidden_size)
         new_emb.apply(self.init_weights)
         emb = self.uniter.embeddings.word_embeddings.weight.data
         new_emb.weight.data[:orig_word_num, :].copy_(emb)
@@ -42,6 +42,8 @@ class UniterForPretrainingForVCR(UniterForPretraining):
         txt_type_ids = batch['txt_type_ids'].cuda()
         if task == 'mlm':
             txt_labels = batch['txt_labels'].cuda()
+            # print(img_feat)
+            # print(img_pos_feat)
             return self.forward_mlm(input_ids, position_ids,
                                     txt_type_ids, img_feat, img_pos_feat,
                                     attention_mask, gather_index,

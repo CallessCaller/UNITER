@@ -266,10 +266,7 @@ class UniterImageEmbeddings(nn.Module):
             self.mask_embedding.weight.data[0, :].fill_(0)
             mask = self.mask_embedding(img_masks.long())
             img_feat = img_feat + mask
-        print(self.img_dim, self.config.hidden_size, img_feat.shape)
-        tmp = self.img_linear(img_feat)
-        transformed_im = self.img_layer_norm(tmp)
-        #transformed_im = self.img_layer_norm(self.img_linear(img_feat))
+        transformed_im = self.img_layer_norm(self.img_linear(img_feat))
         transformed_pos = self.pos_layer_norm(self.pos_linear(img_pos_feat))
         embeddings = transformed_im + transformed_pos + type_embeddings
         embeddings = self.LayerNorm(embeddings)
@@ -317,6 +314,7 @@ class UniterModel(UniterPreTrainedModel):
                                 img_type_ids=None):
         if img_type_ids is None:
             img_type_ids = torch.ones_like(img_feat[:, :, 0].long())
+        ###print(img_type_ids)
         img_type_embeddings = self.embeddings.token_type_embeddings(
             img_type_ids)
         output = self.img_embeddings(img_feat, img_pos_feat,

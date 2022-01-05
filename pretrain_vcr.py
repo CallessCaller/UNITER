@@ -39,9 +39,9 @@ torch.random.manual_seed(42)
 # config 
 num_train_steps = 10 #45000
 warmup_steps = 4500
-accum_steps = 4
+accum_steps = 16
 valid_steps = 2000
-batch_size = 128 // accum_steps #6144
+batch_size = 16 // accum_steps #6144
 val_batch_size = 8000 // accum_steps,
 learning_rate = 3e-05
 
@@ -64,6 +64,8 @@ checkpoint = torch.load('pretrained/uniter-base.pt')
 model = UniterForPretrainingForVCR.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048, img_label_dim=1601)
 model.config.vocab_size = 30522
 model.config.type_vocab_size = 4
+model.init_type_embedding()
+model.init_word_embedding(81)
 model.cuda()
 model.train()
 print('Done !!!')
