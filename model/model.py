@@ -267,7 +267,9 @@ class UniterImageEmbeddings(nn.Module):
             mask = self.mask_embedding(img_masks.long())
             img_feat = img_feat + mask
         print(self.img_dim, self.config.hidden_size, img_feat.shape)
-        transformed_im = self.img_layer_norm(self.img_linear(img_feat))
+        tmp = self.img_linear(img_feat)
+        transformed_im = self.img_layer_norm(tmp)
+        #transformed_im = self.img_layer_norm(self.img_linear(img_feat))
         transformed_pos = self.pos_layer_norm(self.pos_linear(img_pos_feat))
         embeddings = transformed_im + transformed_pos + type_embeddings
         embeddings = self.LayerNorm(embeddings)

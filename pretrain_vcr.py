@@ -37,20 +37,23 @@ torch.random.manual_seed(42)
 '''
 
 # config 
-batch_size = 128 #6144
-val_batch_size = 8000,
 num_train_steps = 10 #45000
 warmup_steps = 4500
-accum_steps = 1
+accum_steps = 4
 valid_steps = 2000
+batch_size = 128 // accum_steps #6144
+val_batch_size = 8000 // accum_steps,
 learning_rate = 3e-05
 
 # dataloader
 print('Loading dataset...')
-train_dataset = PretrainDataForVCR(data_type='train')
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate,
-                              prefetch_factor=5, num_workers=5)
-val_dataset = PretrainDataForVCR(data_type='val')
+# train_dataset = PretrainDataForVCR(data_type='train')
+# train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate,
+#                               prefetch_factor=5, num_workers=5)
+# val_dataset = PretrainDataForVCR(data_type='val')
+# val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate,
+#                             prefetch_factor=5, num_workers=5)
+train_dataset = PretrainDataForVCR(data_type='val')
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate,
                               prefetch_factor=5, num_workers=5)
 print('Done !!!')

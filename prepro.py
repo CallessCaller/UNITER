@@ -13,10 +13,10 @@ import pickle
 import random
 from toolz.sandbox import unzip
 
-# annotPATH = '/mnt3/user16/vcr/vcr1annots/'
-# imagePATH = '/mnt3/user16/vcr/vcr1images/'
-annotPATH = '/home/vcr/vcr1annots/'
-imagePATH = '/home/vcr/vcr1images/'
+annotPATH = '/mnt3/user16/vcr/vcr1annots/'
+imagePATH = '/mnt3/user16/vcr/vcr1images/'
+# annotPATH = '/home/vcr/vcr1annots/'
+# imagePATH = '/home/vcr/vcr1images/'
 
 '''
 def forward(self, batch, task, compute_loss=True):
@@ -271,7 +271,8 @@ def collate(batch):
              'label_targets': label_targets.long(),
              'masked_img_feat': masked_img_feat.long(),
              'feat_targets': feat_target.long(),
-             'img_mask_tgt': img_mask_tgt.long()}
+             'img_mask_tgt': img_mask_tgt.long(),
+             'img_masks': img_mask.long()}
 
     return batch
 
