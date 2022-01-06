@@ -150,6 +150,7 @@ class UniterForPretrainingForVCR(UniterForPretraining):
             #         prediction_soft_label, dim=-1)
             #     mrc_loss = F.kl_div(
             #         prediction_soft_label, label_targets, reduction='none')
+                
             # else:
             #     # background class should not be the target
             #     label_targets = torch.max(label_targets[:, 1:], dim=-1)[1] + 1

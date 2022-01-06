@@ -35,11 +35,11 @@ torch.random.manual_seed(42)
 # config 
 
 warmup_steps = 4500
-accum_steps = 96
+accum_steps = 94
 valid_steps = 3000
 num_train_steps = 45000
 batch_size = 6144 // accum_steps #6144
-val_batch_size = 64 #8000 // accum_steps,
+val_batch_size = batch_size,
 learning_rate = 3e-05
 
 import time
@@ -48,13 +48,11 @@ writer = SummaryWriter(f"./log/{time.time}")
 # dataloader
 print('Loading dataset...')
 train_dataset = PretrainDataForVCR(data_type='train')
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate,
-                              prefetch_factor=5, num_workers=5)
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate, num_workers=10)
 val_dataset = PretrainDataForVCR(data_type='val')
-val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate,
-                            prefetch_factor=5, num_workers=5)
+val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=True, collate_fn=collate, num_workers=10)
 # train_dataset = PretrainDataForVCR(data_type='val')
-# train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate,
+# train_dataloader = DataLoader(train_dataset, batch_size=val_batch_size, shuffle=True, collate_fn=collate,
 #                               num_workers=5)
 # print('Done !!!')
 
@@ -87,6 +85,7 @@ accum = 0
 
 
 current_steps = 0
+breakValue = False
 mlm_steps = -1
 mrc_steps = -1
 mrfr_steps = -1
@@ -98,7 +97,7 @@ def compute_accuracy_for_soft_targets(out, labels):
     return n_correct
 
 @torch.no_grad()
-def validate(model, val_dataloaders):
+def validate(model, val_dataloader):
         print('Start running validation...')
         model.eval()
         mlm_loss = 0
@@ -112,7 +111,7 @@ def validate(model, val_dataloaders):
         mrfr_loss = 0
         n_feat_mrfr = 0
         n_feat = 0
-        for i, batch in enumerate(tqdm(val_dataloaders)):
+        for i, batch in enumerate(tqdm(val_dataloader)):
                 batch['txt_labels'] = batch['txt_labels'].cuda()
                 batch['label_targets'] = batch['label_targets'].cuda()
                 batch['img_mask_tgt'] = batch['img_mask_tgt'].cuda()
@@ -159,12 +158,12 @@ def validate(model, val_dataloaders):
         print(f"MRFR Val Loss: {mrfr_loss}")
         writer.add_scalar("val_mrfr_loss", mrfr_loss, current_steps)
         model.train()
-        return
 
-with tqdm(total=num_train_steps) as pbar:
-        for i in range(num_train_steps * accum_steps):
-                batch = next(iter(train_dataloader))
-                
+model.train()
+for epoch in range(100):
+        validate(model, val_dataloader)
+        print(f"Epoch: {epoch} Current_step: {current_steps}|")
+        for i, batch in enumerate(tqdm(train_dataloader)):
                 task_prob = torch.rand(1)
                 if task_prob > 0.66:
                         task = 'mlm'
@@ -199,13 +198,12 @@ with tqdm(total=num_train_steps) as pbar:
                         continue
                 
                 scaler.step(optimizer)
-                scheduler.step()
                 scaler.update()
+                scheduler.step()
                 optimizer.zero_grad()
 
                 accum = 0
                 current_steps += 1
-                pbar.update(1)
 
                 writer.add_scalar("lr", optimizer.param_groups[0]['lr'], current_steps)
                 writer.add_scalar("total_loss", loss_sum/accum_steps, current_steps)
@@ -214,12 +212,17 @@ with tqdm(total=num_train_steps) as pbar:
 
                 # validation % model save
                 if (current_steps + 1) % valid_steps == 0:
-                        # TODO: validation code
+                        validate(model, val_dataloader)
                         torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}')
 
                 if (current_steps + 1) == num_train_steps:
+                        validate(model, val_dataloader)
                         torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}')
+                        breakValue = True
                         break
+        if breakValue:
+                print(f"Num steps per task ==> MLM: {mlm_steps} | MRC: {mrc_steps} MRFR: {mrfr_steps}")
+                break
 
 
 @torch.no_grad()

@@ -268,7 +268,7 @@ def collate(batch):
              'gather_index': gather_index.long(),
              'masked_input_ids': maksed_tokenzied.long(),
              'txt_labels': txt_label.long(),
-             'label_targets': label_targets.long(),
+             'label_targets': label_targets,
              'masked_img_feat': masked_img_feat.float(),
              'feat_targets': feat_target.float(),
              'img_mask_tgt': img_mask_tgt.long(),
