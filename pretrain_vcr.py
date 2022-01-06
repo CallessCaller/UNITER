@@ -188,11 +188,11 @@ with tqdm(total=num_train_steps) as pbar:
                         accum += 1
 
                         if task == 'mlm':
-                                writer.add_scalar("loss_mlm", loss_sum/accum_steps, current_steps)
+                                writer.add_scalar("loss_mlm", loss.item(), current_steps)
                         elif task == 'mrc':
-                                writer.add_scalar("loss_mrc", loss_sum/accum_steps, current_steps)
+                                writer.add_scalar("loss_mrc", loss.item(), current_steps)
                         else:
-                                writer.add_scalar("loss_mrfr", loss_sum/accum_steps, current_steps)
+                                writer.add_scalar("loss_mrfr", loss.item(), current_steps)
 
                         if accum != accum_steps:
                                 writer.flush()
@@ -209,8 +209,9 @@ with tqdm(total=num_train_steps) as pbar:
 
                         writer.add_scalar("lr", optimizer.param_groups[0]['lr'], current_steps)
                         writer.add_scalar("total_loss", loss_sum/accum_steps, current_steps)
-                        
                         writer.flush()
+
+                        loss_sum = 0
 
                         # validation % model save
                         if (current_steps + 1) % valid_steps == 0:
