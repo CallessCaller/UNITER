@@ -35,11 +35,11 @@ torch.random.manual_seed(42)
 # config 
 
 warmup_steps = 4500
-accum_steps = 94
+accum_steps = 96
 valid_steps = 3000
 num_train_steps = 45000
 batch_size = 6144 // accum_steps #6144
-val_batch_size = batch_size,
+val_batch_size = batch_size
 learning_rate = 3e-05
 
 import time
@@ -160,69 +160,71 @@ def validate(model, val_dataloader):
         model.train()
 
 model.train()
-for epoch in range(100):
-        validate(model, val_dataloader)
-        print(f"Epoch: {epoch} Current_step: {current_steps}|")
-        for i, batch in enumerate(tqdm(train_dataloader)):
-                task_prob = torch.rand(1)
-                if task_prob > 0.66:
-                        task = 'mlm'
-                        batch['input_ids'] = batch['masked_input_ids']
-                        mlm_steps += 1
-                elif task_prob > 0.33:
-                        task = 'mrc'
-                        batch['img_feat'] = batch['masked_img_feat']
-                        mrc_steps += 1
-                else:
-                        task = 'mrfr'
-                        batch['img_feat'] = batch['masked_img_feat']
-                        mrfr_steps += 1
+with tqdm(total=num_train_steps) as pbar:
+        for epoch in range(100):
+                validate(model, val_dataloader)
+                print(f"Epoch: {epoch} Current_step: {current_steps}|")
+                for i, batch in enumerate(train_dataloader):
+                        task_prob = torch.rand(1)
+                        if task_prob > 0.66:
+                                task = 'mlm'
+                                batch['input_ids'] = batch['masked_input_ids']
+                                mlm_steps += 1
+                        elif task_prob > 0.33:
+                                task = 'mrc'
+                                batch['img_feat'] = batch['masked_img_feat']
+                                mrc_steps += 1
+                        else:
+                                task = 'mrfr'
+                                batch['img_feat'] = batch['masked_img_feat']
+                                mrfr_steps += 1
 
-                with amp.autocast():
-                        loss = model(batch, task=task, compute_loss=True)
-                        loss = loss.mean()
+                        with amp.autocast():
+                                loss = model(batch, task=task, compute_loss=True)
+                                loss = loss.mean()
 
-                scaler.scale(loss).backward()
-                loss_sum += loss.item()
-                accum += 1
+                        scaler.scale(loss).backward()
+                        loss_sum += loss.item()
+                        accum += 1
 
-                if task == 'mlm':
-                        writer.add_scalar("loss_mlm", loss_sum/accum_steps, current_steps)
-                elif task == 'mrc':
-                        writer.add_scalar("loss_mrc", loss_sum/accum_steps, current_steps)
-                else:
-                        writer.add_scalar("loss_mrfr", loss_sum/accum_steps, current_steps)
+                        if task == 'mlm':
+                                writer.add_scalar("loss_mlm", loss_sum/accum_steps, current_steps)
+                        elif task == 'mrc':
+                                writer.add_scalar("loss_mrc", loss_sum/accum_steps, current_steps)
+                        else:
+                                writer.add_scalar("loss_mrfr", loss_sum/accum_steps, current_steps)
 
-                if accum != accum_steps:
+                        if accum != accum_steps:
+                                writer.flush()
+                                continue
+                        
+                        scaler.step(optimizer)
+                        scaler.update()
+                        scheduler.step()
+                        optimizer.zero_grad()
+
+                        accum = 0
+                        current_steps += 1
+                        pbar.update(1)
+
+                        writer.add_scalar("lr", optimizer.param_groups[0]['lr'], current_steps)
+                        writer.add_scalar("total_loss", loss_sum/accum_steps, current_steps)
+                        
                         writer.flush()
-                        continue
-                
-                scaler.step(optimizer)
-                scaler.update()
-                scheduler.step()
-                optimizer.zero_grad()
 
-                accum = 0
-                current_steps += 1
+                        # validation % model save
+                        if (current_steps + 1) % valid_steps == 0:
+                                validate(model, val_dataloader)
+                                torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}')
 
-                writer.add_scalar("lr", optimizer.param_groups[0]['lr'], current_steps)
-                writer.add_scalar("total_loss", loss_sum/accum_steps, current_steps)
-                
-                writer.flush()
-
-                # validation % model save
-                if (current_steps + 1) % valid_steps == 0:
-                        validate(model, val_dataloader)
-                        torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}')
-
-                if (current_steps + 1) == num_train_steps:
-                        validate(model, val_dataloader)
-                        torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}')
-                        breakValue = True
+                        if (current_steps + 1) == num_train_steps:
+                                validate(model, val_dataloader)
+                                torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}')
+                                breakValue = True
+                                break
+                if breakValue:
+                        print(f"Num steps per task ==> MLM: {mlm_steps} | MRC: {mrc_steps} MRFR: {mrfr_steps}")
                         break
-        if breakValue:
-                print(f"Num steps per task ==> MLM: {mlm_steps} | MRC: {mrc_steps} MRFR: {mrfr_steps}")
-                break
 
 
 @torch.no_grad()
