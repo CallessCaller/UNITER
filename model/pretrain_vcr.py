@@ -42,13 +42,12 @@ class UniterForPretrainingForVCR(UniterForPretraining):
         txt_type_ids = batch['txt_type_ids'].cuda()
         if task == 'mlm':
             txt_labels = batch['txt_labels'].cuda()
-            # print(img_feat)
-            # print(img_pos_feat)
             return self.forward_mlm(input_ids, position_ids,
                                     txt_type_ids, img_feat, img_pos_feat,
                                     attention_mask, gather_index,
                                     txt_labels, compute_loss)
         elif task == 'mrfr':
+            #print(batch['img_mask_tgt'].shape, batch['img_masks'].shape, batch['feat_targets'].shape)
             img_mask_tgt = batch['img_mask_tgt'].cuda()
             img_masks = batch['img_masks'].cuda()
             mrfr_feat_target = batch['feat_targets'].cuda()
@@ -58,6 +57,7 @@ class UniterForPretrainingForVCR(UniterForPretraining):
                                      img_masks, img_mask_tgt,
                                      mrfr_feat_target, compute_loss)
         elif task.startswith('mrc'):
+            #print(batch['img_mask_tgt'].shape, batch['img_masks'].shape, batch['label_targets'].shape)
             img_mask_tgt = batch['img_mask_tgt'].cuda()
             img_masks = batch['img_masks'].cuda()
             mrc_label_target = batch['label_targets'].cuda()
@@ -132,20 +132,30 @@ class UniterForPretrainingForVCR(UniterForPretraining):
         # only compute masked regions for better efficiency
         masked_output = self._compute_masked_hidden(sequence_output,
                                                     img_mask_tgt)
+        # print(sequence_output.shape, img_mask_tgt.shape)
+        # print(masked_output.shape)
+        # torch.Size([2, 64, 768]) torch.Size([2, 64])
+        # torch.Size([6291456, 768])
+
         prediction_soft_label = self.region_classifier(masked_output)
+        prediction_soft_label = prediction_soft_label[:, :-1]
 
         if compute_loss:
-            if "kl" in task:
-                prediction_soft_label = F.log_softmax(
-                    prediction_soft_label, dim=-1)
-                mrc_loss = F.kl_div(
-                    prediction_soft_label, label_targets, reduction='none')
-            else:
-                # background class should not be the target
-                label_targets = torch.max(label_targets[:, 1:], dim=-1)[1] + 1
-                mrc_loss = F.cross_entropy(
-                    prediction_soft_label, label_targets,
-                    ignore_index=0, reduction='none')
+            prediction_soft_label = F.log_softmax(
+                prediction_soft_label, dim=-1)
+            mrc_loss = F.kl_div(
+                prediction_soft_label, label_targets, reduction='none')
+            # if "kl" in task:
+            #     prediction_soft_label = F.log_softmax(
+            #         prediction_soft_label, dim=-1)
+            #     mrc_loss = F.kl_div(
+            #         prediction_soft_label, label_targets, reduction='none')
+            # else:
+            #     # background class should not be the target
+            #     label_targets = torch.max(label_targets[:, 1:], dim=-1)[1] + 1
+            #     mrc_loss = F.cross_entropy(
+            #         prediction_soft_label, label_targets,
+            #         ignore_index=0, reduction='none')
             return mrc_loss
         else:
             return prediction_soft_label

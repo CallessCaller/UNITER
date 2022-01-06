@@ -314,7 +314,6 @@ class UniterModel(UniterPreTrainedModel):
                                 img_type_ids=None):
         if img_type_ids is None:
             img_type_ids = torch.ones_like(img_feat[:, :, 0].long())
-        ###print(img_type_ids)
         img_type_embeddings = self.embeddings.token_type_embeddings(
             img_type_ids)
         output = self.img_embeddings(img_feat, img_pos_feat,

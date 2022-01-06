@@ -44,6 +44,7 @@ class RegionClassification(nn.Module):
                                  nn.Linear(hidden_size, label_dim))
 
     def forward(self, input_):
+        # print(input_.shape) [6291456, 768])
         output = self.net(input_)
         return output
 
@@ -112,6 +113,7 @@ class UniterForPretraining(UniterPreTrainedModel):
                                       img_feat, img_pos_feat,
                                       attention_mask, gather_index,
                                       output_all_encoded_layers=False)
+
         # get only the text part
         sequence_output = sequence_output[:, :input_ids.size(1), :]
         # only compute masked tokens for better efficiency
@@ -129,8 +131,11 @@ class UniterForPretraining(UniterPreTrainedModel):
 
     def _compute_masked_hidden(self, hidden, mask):
         """ get only the masked region (don't compute unnecessary hiddens) """
+        #print(hidden.shape, mask.shape, mask.type())
+        mask = mask.bool()
         mask = mask.unsqueeze(-1).expand_as(hidden)
         hidden_masked = hidden[mask].contiguous().view(-1, hidden.size(-1))
+        #print(hidden_masked.shape)
         return hidden_masked
 
     def forward_mrfr(self, input_ids, position_ids, img_feat, img_pos_feat,

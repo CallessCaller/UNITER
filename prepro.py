@@ -15,8 +15,8 @@ from toolz.sandbox import unzip
 
 annotPATH = '/mnt3/user16/vcr/vcr1annots/'
 imagePATH = '/mnt3/user16/vcr/vcr1images/'
-annotPATH = '/home/vcr/vcr1annots/'
-imagePATH = '/home/vcr/vcr1images/'
+# annotPATH = '/home/vcr/vcr1annots/'
+# imagePATH = '/home/vcr/vcr1images/'
 
 '''
 def forward(self, batch, task, compute_loss=True):
@@ -110,7 +110,7 @@ def _get_img_mask(mask_prob, num_bb):
     return img_mask
 
 def _get_img_tgt_mask(img_mask, txt_len):
-    z = torch.zeros(txt_len, dtype=torch.uint8)
+    z = torch.zeros(txt_len, dtype=torch.float32)
     img_mask_tgt = torch.cat([z, img_mask], dim=0)
     return img_mask_tgt
 
@@ -270,7 +270,7 @@ def collate(batch):
              'txt_labels': txt_label.long(),
              'label_targets': label_targets.long(),
              'masked_img_feat': masked_img_feat.float(),
-             'feat_targets': feat_target.long(),
+             'feat_targets': feat_target.float(),
              'img_mask_tgt': img_mask_tgt.long(),
              'img_masks': img_mask}
 
