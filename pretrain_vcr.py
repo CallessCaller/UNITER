@@ -35,15 +35,15 @@ torch.random.manual_seed(42)
 # config 
 
 warmup_steps = 4500
-accum_steps = 96
+accum_steps = 4
 valid_steps = 3000
 num_train_steps = 45000
-batch_size = 6144 // accum_steps #6144
+batch_size = 64 #6144
 val_batch_size = batch_size
 learning_rate = 3e-05
 
 import time
-writer = SummaryWriter(f"./log/{time.time}")
+writer = SummaryWriter(f"./log/{time.time()}")
 
 # dataloader
 print('Loading dataset...')
@@ -162,8 +162,8 @@ def validate(model, val_dataloader):
 model.train()
 with tqdm(total=num_train_steps) as pbar:
         for epoch in range(100):
-                validate(model, val_dataloader)
-                print(f"Epoch: {epoch} Current_step: {current_steps}|")
+                #validate(model, val_dataloader)
+                #print(f"Epoch: {epoch} Current_step: {current_steps}|")
                 for i, batch in enumerate(train_dataloader):
                         task_prob = torch.rand(1)
                         if task_prob > 0.66:
