@@ -19,21 +19,6 @@ from torch.utils.tensorboard import SummaryWriter
 # random seed
 torch.random.manual_seed(42)
 
-'''
- batch = {'input_ids': input_ids.long(),
-        'txt_type_ids': txt_type_ids.long(),
-        'position_ids': position_ids.long(),
-        'img_feat': img_feat.long(),
-        'img_pos_feat': img_pos.long(),
-        'attn_masks': attn_masks.long(),
-        'gather_index': gather_index.long(),
-        'masked_input_ids': maksed_tokenzied.long(),
-        'txt_labels': txt_label.long(),
-        'label_targets': label_targets.long(),
-        'masked_img_feat': masked_img_feat.long(),
-        'feat_targets': feat_target.long()}
-'''
-
 # config 
 parser = argparse.ArgumentParser(description='Config')
 parser.add_argument('--batch_size', type=int, default=64)

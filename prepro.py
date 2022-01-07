@@ -12,11 +12,19 @@ import pandas as pd
 import pickle
 import random
 from toolz.sandbox import unzip
+from cytoolz import concat
+import copy
 
 annotPATH = '/mnt3/user16/vcr/vcr1annots/'
 imagePATH = '/mnt3/user16/vcr/vcr1images/'
 # annotPATH = '/home/vcr/vcr1annots/'
 # imagePATH = '/home/vcr/vcr1images/'
+
+"""
+순서를 이렇게 바꿔서도 한번 해보자
+        [[txt, img1],
+         [txt, img2]]
+        """
 
 '''
 def forward(self, batch, task, compute_loss=True):
@@ -284,3 +292,230 @@ def collate(batch):
 #     print('New Batch! ', i)
 #     print(batch)
 #     if i == 2: break
+
+### for finetuning
+'''
+batch = defaultdict(lambda: None, batch)
+        input_ids = batch['input_ids']
+        position_ids = batch['position_ids']
+        img_feat = batch['img_feat']
+        img_pos_feat = batch['img_pos_feat']
+        attn_masks = batch['attn_masks']
+        gather_index = batch['gather_index']
+        txt_type_ids = batch['txt_type_ids']
+        targets = batch['targets']
+
+input_ids_q, token_type_q
+input_ids_a, token_type_a
+input_ids_r, token_type_r
+
+q + a1 + a2 + a3 + a4, 0 + 2
+q + a + r1 + r2 + r3 + r4, 0 + 2 + 3
+
+train: qa 하고 qar
+validation qa, qar 동시에
+q + a1 + a2 + a3 + a4, + 2
+or
+q + a1 + a2 + a3 + a4 + r1 + r2 + r3 + r4, 0 + 2 + 3
+'''
+
+class FinetuneDataForVCR(Dataset):
+    def __init__(self, data_type='train', task='qa'):
+        super().__init__()
+        self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
+        self.tokenzier = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.tokenzier.max_length = 220
+        self.task = task
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        #preprocessing for image
+        with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
+            feature = pickle.load(f)
+        
+        roi_feature = feature['roi_features']
+        nb = roi_feature.shape[1]
+
+        width = feature['normalized_boxes'][:,:,2] - feature['normalized_boxes'][:,:,0]
+        height = feature['normalized_boxes'][:,:,3] - feature['normalized_boxes'][:,:,1]
+        a = width * height
+
+        pos = torch.cat((feature['normalized_boxes'], width.unsqueeze(-1)), dim=-1)
+        pos = torch.cat((pos, height.unsqueeze(-1)), dim=-1)
+        pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
+
+        question = self.tokenzier(self.data.question_orig[index], return_token_type_ids=False)
+        if self.task == 'qa':
+            # qa
+            answer_index = self.data.answer_sources[index]
+            out = []
+            for i in answer_index:
+                answer = self.tokenzier(self.data.answer_orig[i], return_token_type_ids=False)
+                tmp = copy.deepcopy(question)
+                tokenized = tmp['input_ids'] + answer['input_ids'][1:]
+                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
+                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
+
+                if index == i:
+                    target = torch.Tensor(int([1]))
+                else:
+                    target = torch.Tensor(int([0]))
+                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                            roi_feature, pos,
+                            torch.Tensor(attention_mask), target))
+        else:
+            # qar
+            rationale_index = self.data.rationale_sources[index]
+            answer =  self.tokenzier(self.data.answer_orig[index], return_token_type_ids=False)
+            out = []
+            for i in rationale_index:
+                rationale = self.tokenzier(self.data.rationale_orig[i], return_token_type_ids=False)
+                tmp = copy.deepcopy(question)
+                tmp_a = copy.deepcopy(answer)
+                tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
+                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(tmp_a['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
+                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
+
+                if index == i:
+                    target = torch.Tensor(int([1]))
+                else:
+                    target = torch.Tensor(int([0]))
+                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                            roi_feature, pos,
+                            torch.Tensor(attention_mask), target))
+        
+        return tuple(out)
+
+def vcr_collate(inputs):
+    (input_ids, txt_type_ids, img_feat,
+     img_pos, attn_masks, targets) = map(list, unzip(concat(inputs)))
+
+    txt_lens = [i.size(0) for i in input_ids]
+    input_ids = pad_sequence(input_ids, batch_first=True, padding_value=0)
+    txt_type_ids = pad_sequence(txt_type_ids, batch_first=True, padding_value=0)
+    position_ids = torch.arange(0, input_ids.size(1), dtype=torch.long).unsqueeze(0)
+    
+    num_bbs = [f.size(0) for f in img_feat]
+    img_feat = pad_tensors(img_feat, num_bbs)
+    img_pos = pad_tensors(img_pos, num_bbs)
+
+    attn_masks = pad_sequence(attn_masks, batch_first=True, padding_value=0)
+    targets = torch.stack(targets, dim=0)
+
+    bs, max_tl = input_ids.size()
+    out_size = attn_masks.shape[1]
+    gather_index = get_gather_index(txt_lens, num_bbs, bs, max_tl, out_size)
+
+    batch = {'input_ids': input_ids.long(),
+             'txt_type_ids': txt_type_ids.long(),
+             'position_ids': position_ids.long(),
+             'img_feat': img_feat.float(),
+             'img_pos_feat': img_pos.float(),
+             'attn_masks': attn_masks.long(),
+             'gather_index': gather_index.long(),
+             'targets': targets.long()}
+
+    return batch
+    
+
+class ValidationDataForVCR(Dataset):
+    def __init__(self, data_type='val'):
+        super().__init__()
+        self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
+        self.tokenzier = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.tokenzier.max_length = 220
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        # preprocessing for Image
+        qid = self.data.question_number[index]
+        with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
+            feature = pickle.load(f)
+        
+        roi_feature = feature['roi_features']
+        nb = roi_feature.shape[1]
+
+        width = feature['normalized_boxes'][:,:,2] - feature['normalized_boxes'][:,:,0]
+        height = feature['normalized_boxes'][:,:,3] - feature['normalized_boxes'][:,:,1]
+        a = width * height
+
+        pos = torch.cat((feature['normalized_boxes'], width.unsqueeze(-1)), dim=-1)
+        pos = torch.cat((pos, height.unsqueeze(-1)), dim=-1)
+        pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
+
+        qa_target = torch.Tensor(int(self.data.answer_label[index]))
+        qar_target = torch.Tensor(int(self.data.rationale_label[index]))
+
+        question = self.tokenzier(self.data.question_orig[index], return_token_type_ids=False)
+        # qa
+        answer_index = self.data.answer_sources[index]
+        out = []
+        for i in answer_index:
+            answer = self.tokenzier(self.data.answer_orig[i], return_token_type_ids=False)
+            tmp = copy.deepcopy(question)
+            tokenized = tmp['input_ids'] + answer['input_ids'][1:]
+            token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
+            attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
+
+            out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                        roi_feature, pos,
+                        torch.Tensor(attention_mask)))
+
+        rationale_index = self.data.rationale_sources[index]
+        answer =  self.tokenzier(self.data.answer_orig[index], return_token_type_ids=False)
+        out = []
+        for i in rationale_index:
+            rationale = self.tokenzier(self.data.rationale_orig[i], return_token_type_ids=False)
+            tmp = copy.deepcopy(question)
+            tmp_a = copy.deepcopy(answer)
+            tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
+            token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(tmp_a['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
+            attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
+
+            out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                        roi_feature, pos,
+                        torch.Tensor(attention_mask)))
+
+        return tuple(out), qid, qa_target, qar_target
+
+
+def vcr_val_collate(inputs):
+    (input_ids, txt_type_ids, img_feat, img_pos, attn_masks) = map(
+        list, unzip(concat(outs for outs, _, _, _ in inputs)))
+
+    txt_lens = [i.size(0) for i in input_ids]
+    input_ids = pad_sequence(input_ids, batch_first=True, padding_value=0)
+    txt_type_ids = pad_sequence(txt_type_ids, batch_first=True, padding_value=0)
+    position_ids = torch.arange(0, input_ids.size(1), dtype=torch.long).unsqueeze(0)
+    
+    num_bbs = [f.size(0) for f in img_feat]
+    img_feat = pad_tensors(img_feat, num_bbs)
+    img_pos = pad_tensors(img_pos, num_bbs)
+
+    attn_masks = pad_sequence(attn_masks, batch_first=True, padding_value=0)
+
+    bs, max_tl = input_ids.size()
+    out_size = attn_masks.shape[1]
+    gather_index = get_gather_index(txt_lens, num_bbs, bs, max_tl, out_size)
+
+    qa_targets = torch.stack(
+        [t for _, _, t, _ in inputs], dim=0)
+    qar_targets = torch.stack(
+        [t for _, _, _, t in inputs], dim=0)
+    qids = [id_ for _, id_, _, _ in inputs]
+
+    batch = {'qid': qids,
+             'input_ids': input_ids.long(),
+             'txt_type_ids': txt_type_ids.long(),
+             'position_ids': position_ids.long(),
+             'img_feat': img_feat.float(),
+             'img_pos_feat': img_pos.float(),
+             'attn_masks': attn_masks.long(),
+             'qa_targets': qa_targets,
+             'qar_targets': qar_targets}
+
+    return batch
