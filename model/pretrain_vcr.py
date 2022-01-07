@@ -143,8 +143,8 @@ class UniterForPretrainingForVCR(UniterForPretraining):
         if compute_loss:
             prediction_soft_label = F.log_softmax(
                 prediction_soft_label, dim=-1)
-            mrc_loss = F.kl_div(
-                prediction_soft_label, label_targets, reduction='none')
+            #mrc_loss = F.kl_div(prediction_soft_label, label_targets, reduction='none')
+            mrc_loss = F.kl_div(prediction_soft_label, label_targets, reduction='batchmean')
             # if "kl" in task:
             #     prediction_soft_label = F.log_softmax(
             #         prediction_soft_label, dim=-1)

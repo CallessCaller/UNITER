@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+import argparse
+
 from torch.utils.tensorboard import SummaryWriter
 
 # random seed
@@ -33,17 +35,21 @@ torch.random.manual_seed(42)
 '''
 
 # config 
+parser = argparse.ArgumentParser(description='Config')
+parser.add_argument('--batch_size', type=int, default=64)
+parser.add_argument('--accum_steps', type=int, default=4)
+args = parser.parse_args()
 
 warmup_steps = 4500
-accum_steps = 4
+accum_steps = args.accum_steps
 valid_steps = 3000
 num_train_steps = 45000
-batch_size = 64 #6144
+batch_size = args.batch_size #6144
 val_batch_size = batch_size
 learning_rate = 3e-05
 
 import time
-writer = SummaryWriter(f"./log/{time.time()}")
+writer = SummaryWriter(f"./log/{batch_size}_{accum_steps}_{time.time()}")
 
 # dataloader
 print('Loading dataset...')
@@ -54,7 +60,7 @@ val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=True
 # train_dataset = PretrainDataForVCR(data_type='val')
 # train_dataloader = DataLoader(train_dataset, batch_size=val_batch_size, shuffle=True, collate_fn=collate,
 #                               num_workers=5)
-# print('Done !!!')
+print('Done !!!')
 
 # model
 print('Loading model...')
@@ -181,7 +187,8 @@ with tqdm(total=num_train_steps) as pbar:
 
                         with amp.autocast():
                                 loss = model(batch, task=task, compute_loss=True)
-                                loss = loss.mean()
+                                if task != 'mrc':
+                                        loss = loss.mean()
 
                         scaler.scale(loss).backward()
                         loss_sum += loss.item()
@@ -209,19 +216,21 @@ with tqdm(total=num_train_steps) as pbar:
 
                         writer.add_scalar("lr", optimizer.param_groups[0]['lr'], current_steps)
                         writer.add_scalar("total_loss", loss_sum/accum_steps, current_steps)
-                        writer.flush()
+                        
 
                         loss_sum = 0
 
                         # validation % model save
                         if (current_steps + 1) % valid_steps == 0:
                                 validate(model, val_dataloader)
-                                torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}')
+                                torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}_{batch_size}_{accum_steps}')
+                        writer.flush()
 
                         if (current_steps + 1) == num_train_steps:
                                 validate(model, val_dataloader)
-                                torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}')
+                                torch.save(model.state_dict(), f'./ckpt/UNITER_2nd_{current_steps + 1}_{batch_size}_{accum_steps}')
                                 breakValue = True
+                                writer.flush()
                                 break
                 if breakValue:
                         print(f"Num steps per task ==> MLM: {mlm_steps} | MRC: {mrc_steps} MRFR: {mrfr_steps}")
