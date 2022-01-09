@@ -51,10 +51,11 @@ print('Done !!!')
 print('Loading model...')
 checkpoint = torch.load('pretrained/uniter-base.pt')
 model = UniterForPretrainingForVCR.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048, img_label_dim=1601)
-model.config.vocab_size = 30522
-model.config.type_vocab_size = 4
-model.init_type_embedding()
-model.init_word_embedding(81)
+# only for when we use 1st pretrained ckpt
+# model.config.vocab_size = 30522
+# model.config.type_vocab_size = 4
+# model.init_type_embedding()
+# model.init_word_embedding(81)
 model.cuda()
 model.train()
 print('Done !!!')

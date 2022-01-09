@@ -12,6 +12,7 @@ ckpt/
 pretrained/
 log/
 log_finetune/
+log_eval/
 build/
 develop-eggs/
 dist/

@@ -359,11 +359,11 @@ class FinetuneDataForVCR(Dataset):
                 attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
 
                 if index == i:
-                    target = torch.Tensor(int([1]))
+                    target = torch.Tensor([1]).long()
                 else:
-                    target = torch.Tensor(int([0]))
+                    target = torch.Tensor([0]).long()
                 out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                            roi_feature, pos,
+                            roi_feature.squeeze(0), pos.squeeze(0),
                             torch.Tensor(attention_mask), target))
         else:
             # qar
@@ -379,11 +379,11 @@ class FinetuneDataForVCR(Dataset):
                 attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
 
                 if index == i:
-                    target = torch.Tensor(int([1]))
+                    target = torch.Tensor([1])
                 else:
-                    target = torch.Tensor(int([0]))
+                    target = torch.Tensor([0])
                 out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                            roi_feature, pos,
+                            roi_feature.squeeze(0), pos.squeeze(0),
                             torch.Tensor(attention_mask), target))
         
         return tuple(out)
@@ -432,7 +432,9 @@ class ValidationDataForVCR(Dataset):
 
     def __getitem__(self, index):
         # preprocessing for Image
-        qid = self.data.question_number[index]
+        qid = index
+        qa_target = torch.Tensor([self.data.answer_label[index]])
+        qar_target = torch.Tensor([self.data.rationale_label[index]])
         with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
             feature = pickle.load(f)
         
@@ -447,9 +449,6 @@ class ValidationDataForVCR(Dataset):
         pos = torch.cat((pos, height.unsqueeze(-1)), dim=-1)
         pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
 
-        qa_target = torch.Tensor(int(self.data.answer_label[index]))
-        qar_target = torch.Tensor(int(self.data.rationale_label[index]))
-
         question = self.tokenzier(self.data.question_orig[index], return_token_type_ids=False)
         # qa
         answer_index = self.data.answer_sources[index]
@@ -462,7 +461,7 @@ class ValidationDataForVCR(Dataset):
             attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
 
             out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                        roi_feature, pos,
+                        roi_feature.squeeze(0), pos.squeeze(0),
                         torch.Tensor(attention_mask)))
 
         rationale_index = self.data.rationale_sources[index]
@@ -477,9 +476,8 @@ class ValidationDataForVCR(Dataset):
             attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
 
             out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                        roi_feature, pos,
+                        roi_feature.squeeze(0), pos.squeeze(0),
                         torch.Tensor(attention_mask)))
-
         return tuple(out), qid, qa_target, qar_target
 
 
@@ -502,20 +500,22 @@ def vcr_val_collate(inputs):
     out_size = attn_masks.shape[1]
     gather_index = get_gather_index(txt_lens, num_bbs, bs, max_tl, out_size)
 
+    # print([t for _, _, t, _ in inputs])
     qa_targets = torch.stack(
         [t for _, _, t, _ in inputs], dim=0)
     qar_targets = torch.stack(
         [t for _, _, _, t in inputs], dim=0)
     qids = [id_ for _, id_, _, _ in inputs]
 
-    batch = {'qid': qids,
+    batch = {'qids': qids,
              'input_ids': input_ids.long(),
              'txt_type_ids': txt_type_ids.long(),
              'position_ids': position_ids.long(),
              'img_feat': img_feat.float(),
              'img_pos_feat': img_pos.float(),
              'attn_masks': attn_masks.long(),
-             'qa_targets': qa_targets,
-             'qar_targets': qar_targets}
+             'gather_index': gather_index.long(),
+             'qa_targets': qa_targets.long(),
+             'qar_targets': qar_targets.long()}
 
     return batch

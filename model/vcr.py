@@ -52,13 +52,13 @@ class UniterForVisualCommonsenseReasoning(UniterPreTrainedModel):
 
     def forward(self, batch, compute_loss=True):
         batch = defaultdict(lambda: None, batch)
-        input_ids = batch['input_ids']
-        position_ids = batch['position_ids']
-        img_feat = batch['img_feat']
-        img_pos_feat = batch['img_pos_feat']
-        attn_masks = batch['attn_masks']
-        gather_index = batch['gather_index']
-        txt_type_ids = batch['txt_type_ids']
+        input_ids = batch['input_ids'].cuda()
+        position_ids = batch['position_ids'].cuda()
+        img_feat = batch['img_feat'].cuda()
+        img_pos_feat = batch['img_pos_feat'].cuda()
+        attn_masks = batch['attn_masks'].cuda()
+        gather_index = batch['gather_index'].cuda()
+        txt_type_ids = batch['txt_type_ids'].cuda()
         sequence_output = self.uniter(input_ids, position_ids,
                                       img_feat, img_pos_feat,
                                       attn_masks, gather_index,
@@ -68,7 +68,7 @@ class UniterForVisualCommonsenseReasoning(UniterPreTrainedModel):
         rank_scores = self.vcr_output(pooled_output)
 
         if compute_loss:
-            targets = batch['targets']
+            targets = batch['targets'].cuda()
             vcr_loss = F.cross_entropy(
                     rank_scores, targets.squeeze(-1),
                     reduction='mean')
