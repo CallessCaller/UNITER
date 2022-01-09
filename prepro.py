@@ -466,7 +466,6 @@ class ValidationDataForVCR(Dataset):
 
         rationale_index = self.data.rationale_sources[index]
         answer =  self.tokenzier(self.data.answer_orig[index], return_token_type_ids=False)
-        out = []
         for i in rationale_index:
             rationale = self.tokenzier(self.data.rationale_orig[i], return_token_type_ids=False)
             tmp = copy.deepcopy(question)

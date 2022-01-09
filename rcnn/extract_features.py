@@ -6,8 +6,8 @@ import pandas as pd
 import pickle
 from tqdm import tqdm
 
-annotPATH = '/home/vcr/vcr1annots/'
-imagePATH = '/home/vcr/vcr1images/'
+annotPATH = '/mnt3/user16/vcr/vcr1annots/'
+imagePATH = '/mnt3/user16/vcr/vcr1images/'
 #featurePATH = 'home/vcr/vcr1features/'
 
 frcnn_cfg = Config.from_pretrained("unc-nlp/frcnn-vg-finetuned")
@@ -16,8 +16,9 @@ frcnn_cfg.max_detections = 100
 frcnn = GeneralizedRCNN.from_pretrained("unc-nlp/frcnn-vg-finetuned", config=frcnn_cfg)
 image_preprocess = Preprocess(frcnn_cfg)
 
-file_list = ['train', 'val', 'test']
-for i in range(3):
+file_list = ['gd_val']
+
+for i in range(len(file_list)):
     data = pd.read_json(path_or_buf=annotPATH + file_list[i] + '.jsonl', lines=True)
     for j in tqdm(range(len(data))):
         metadata_fn = data.metadata_fn[j]
