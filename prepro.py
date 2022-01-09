@@ -1,3 +1,4 @@
+import enum
 import torch
 import torch.nn as F
 from torch.nn.utils.rnn import pad_sequence
@@ -419,6 +420,11 @@ def vcr_collate(inputs):
 
     return batch
     
+def list_to_str(text_list):
+    for i, ele in enumerate(text_list):
+        if type(ele) == type([]):
+            text_list[i] = str(ele)
+    return " ".join(text_list)
 
 class ValidationDataForVCR(Dataset):
     def __init__(self, data_type='val'):
@@ -426,6 +432,7 @@ class ValidationDataForVCR(Dataset):
         self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
         self.tokenzier = BertTokenizer.from_pretrained('bert-base-uncased')
         self.tokenzier.max_length = 220
+        self.data_type = data_type
 
     def __len__(self):
         return len(self.data)
@@ -448,35 +455,64 @@ class ValidationDataForVCR(Dataset):
         pos = torch.cat((feature['normalized_boxes'], width.unsqueeze(-1)), dim=-1)
         pos = torch.cat((pos, height.unsqueeze(-1)), dim=-1)
         pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
-
-        question = self.tokenzier(self.data.question_orig[index], return_token_type_ids=False)
-        # qa
-        answer_index = self.data.answer_sources[index]
+        
         out = []
-        for i in answer_index:
-            answer = self.tokenzier(self.data.answer_orig[i], return_token_type_ids=False)
-            tmp = copy.deepcopy(question)
-            tokenized = tmp['input_ids'] + answer['input_ids'][1:]
-            token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
-            attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
+        # qa
+        if 'gd' not in self.data_type:
+            question = self.tokenzier(self.data.question_orig[index], return_token_type_ids=False)
+            answer_index = self.data.answer_sources[index]
+            for i in answer_index:
+                answer = self.tokenzier(self.data.answer_orig[i], return_token_type_ids=False)
+                tmp = copy.deepcopy(question)
+                tokenized = tmp['input_ids'] + answer['input_ids'][1:]
+                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
+                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
 
-            out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                        roi_feature.squeeze(0), pos.squeeze(0),
-                        torch.Tensor(attention_mask)))
+                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                            roi_feature.squeeze(0), pos.squeeze(0),
+                            torch.Tensor(attention_mask)))
 
-        rationale_index = self.data.rationale_sources[index]
-        answer =  self.tokenzier(self.data.answer_orig[index], return_token_type_ids=False)
-        for i in rationale_index:
-            rationale = self.tokenzier(self.data.rationale_orig[i], return_token_type_ids=False)
-            tmp = copy.deepcopy(question)
-            tmp_a = copy.deepcopy(answer)
-            tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
-            token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(tmp_a['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
-            attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
+            rationale_index = self.data.rationale_sources[index]
+            answer =  self.tokenzier(self.data.answer_orig[index], return_token_type_ids=False)
+            for i in rationale_index:
+                rationale = self.tokenzier(self.data.rationale_orig[i], return_token_type_ids=False)
+                tmp = copy.deepcopy(question)
+                tmp_a = copy.deepcopy(answer)
+                tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
+                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(tmp_a['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
+                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
 
-            out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                        roi_feature.squeeze(0), pos.squeeze(0),
-                        torch.Tensor(attention_mask)))
+                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                            roi_feature.squeeze(0), pos.squeeze(0),
+                            torch.Tensor(attention_mask)))
+        else:
+            question = self.tokenzier(list_to_str(self.data.question[index]))
+            answer_choices = self.data.answer_choices[index]
+            for i, answer_choice in enumerate(answer_choices):
+                answer = self.tokenzier(list_to_str(answer_choice), return_token_type_ids=False)
+                tmp = copy.deepcopy(question)
+                tokenized = tmp['input_ids'] + answer['input_ids'][1:]
+                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
+                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
+
+                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                            roi_feature.squeeze(0), pos.squeeze(0),
+                            torch.Tensor(attention_mask)))
+            
+            rationale_choices = self.data.rationale_choices[index]
+            answer =  self.tokenzier(list_to_str(self.data.answer_choices[index][self.data.answer_label[index]]), return_token_type_ids=False)
+            for i, rationale_choice in enumerate(rationale_choices):
+                rationale = self.tokenzier(list_to_str(rationale_choice), return_token_type_ids=False)
+                tmp = copy.deepcopy(question)
+                tmp_a = copy.deepcopy(answer)
+                tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
+                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(tmp_a['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
+                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
+
+                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                            roi_feature.squeeze(0), pos.squeeze(0),
+                            torch.Tensor(attention_mask)))
+
         return tuple(out), qid, qa_target, qar_target
 
 
