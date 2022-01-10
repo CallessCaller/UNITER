@@ -83,7 +83,7 @@ F.kl_div(F.log_softmax(k, 0), F.softmax(k1, 0), reduction="none").mean()
 #                     for dset in self.datasets]
 #         return run_all
 
-def random_word(tokens, vocab_range=(999, 30522), mask=103):
+def random_word(tokens, vocab_range=(999, 28996), mask=103):
     """
     Masking some random tokens for Language Model task with probabilities as in
         the original BERT paper.
@@ -186,7 +186,7 @@ class PretrainDataForVCR(Dataset):
     def __init__(self, data_type='train'):
         super().__init__()
         self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
-        self.tokenzier = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.tokenzier = BertTokenizer.from_pretrained('bert-base-cased')
         self.tokenzier.max_length = 220
 
     def __len__(self):
@@ -334,7 +334,7 @@ class FinetuneDataForVCR(Dataset):
     def __init__(self, data_type='train', task='qa'):
         super().__init__()
         self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
-        self.tokenzier = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.tokenzier = BertTokenizer.from_pretrained('bert-base-cased')
         self.tokenzier.max_length = 220
         self.task = task
 
@@ -431,25 +431,29 @@ def vcr_collate(inputs):
     return batch
     
 def list_to_str(text_list):
+    '''
+    [0, 1] => 0 and 1
+    [0, 1, 2] => 0, 1 and 2
+    '''
     for i, ele in enumerate(text_list):
         if type(ele) == type([]):
             tmp = ''
             for j, e in enumerate(ele):
                 tmp += str(e)
-                if  j == 0 and len(ele) > 2:
-                    tmp += ' , '
+                if j > 0 and (j+2) == len(ele):
+                    tmp += ' and '
+                elif (j+1) == len(ele):
+                    continue
                 else:
-                    if (j+1) != len(ele):
-                        tmp += ' and '
+                    tmp += ' , '
             text_list[i] =tmp 
-    # print(" ".join(text_list))
     return " ".join(text_list)
 
 class ValidationDataForVCR(Dataset):
     def __init__(self, data_type='val'):
         super().__init__()
         self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
-        self.tokenzier = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.tokenzier = BertTokenizer.from_pretrained('bert-base-cased')
         self.tokenzier.max_length = 220
         self.data_type = data_type
 
@@ -461,8 +465,12 @@ class ValidationDataForVCR(Dataset):
         qid = index
         qa_target = torch.Tensor([self.data.answer_label[index]])
         qar_target = torch.Tensor([self.data.rationale_label[index]])
-        with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
-            feature = pickle.load(f)
+        if 'gd' not in self.data_type:    
+            with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
+                feature = pickle.load(f)
+        else:
+            with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
+                feature = pickle.load(f)
         
         roi_feature = feature['roi_features']
         nb = roi_feature.shape[1]

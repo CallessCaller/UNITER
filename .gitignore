@@ -9,6 +9,7 @@ __pycache__/
 # Distribution / packaging
 .Python
 ckpt/
+ckpt_prev/
 pretrained/
 log/
 log_finetune/

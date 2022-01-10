@@ -8,7 +8,7 @@ model = UniterModel.from_pretrained('config/uniter-base.json', checkpoint, img_d
 model.cuda()
 model.train()
 
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
 
 sentence = tokenizer('Hello my name is Park. what is your [MASK] ?', return_tensors='pt')
 

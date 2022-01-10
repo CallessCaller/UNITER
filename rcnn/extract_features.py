@@ -38,11 +38,11 @@ for i in range(len(file_list)):
             images.cuda(),
             sizes,
             scales_yx=scales_yx,
-            gt_boxes=gt_boxes,
+            #gt_boxes=gt_boxes,
             max_detections=frcnn_cfg.max_detections,
             location='cuda:0',
             return_tensors="pt",
         )
 
-        with open(imagePATH + metadata_fn[:-5] + '.pickle', 'wb') as f:
+        with open(imagePATH + metadata_fn[:-5] + '_no_gt.pickle', 'wb') as f:
             pickle.dump(output_dict, f)

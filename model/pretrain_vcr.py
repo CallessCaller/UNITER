@@ -3,8 +3,6 @@ from torch import nn
 from .layer import BertOnlyMLMHead
 from collections import defaultdict
 from torch.nn import functional as F
-import torch
-
 
 class UniterForPretrainingForVCR(UniterForPretraining):
     """ 2nd Stage Pretrain UNITER for VCR
@@ -23,7 +21,7 @@ class UniterForPretrainingForVCR(UniterForPretraining):
     def init_word_embedding(self, num_special_tokens):
         orig_word_num = self.uniter.embeddings.word_embeddings.weight.size(0)
         new_emb = nn.Embedding(
-            30522, self.uniter.config.hidden_size)
+            orig_word_num + num_special_tokens, self.uniter.config.hidden_size)
         new_emb.apply(self.init_weights)
         emb = self.uniter.embeddings.word_embeddings.weight.data
         new_emb.weight.data[:orig_word_num, :].copy_(emb)

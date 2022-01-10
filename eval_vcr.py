@@ -16,7 +16,7 @@ torch.random.manual_seed(42)
 # config 
 parser = argparse.ArgumentParser(description='Config')
 parser.add_argument('--ckpt', type=str, default='ckpt/UNITER_2nd_45000_32_4')
-parser.add_argument('--config', type=str, default='config/uniter-base_vcr.json')
+parser.add_argument('--config', type=str, default='config/uniter-base.json')
 parser.add_argument('--data_type', type=str, default='val')
 args = parser.parse_args()
 

@@ -52,10 +52,8 @@ print('Loading model...')
 checkpoint = torch.load('pretrained/uniter-base.pt')
 model = UniterForPretrainingForVCR.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048, img_label_dim=1601)
 # only for when we use 1st pretrained ckpt
-# model.config.vocab_size = 30522
 # model.config.type_vocab_size = 4
-# model.init_type_embedding()
-# model.init_word_embedding(81)
+model.init_type_embedding()
 model.cuda()
 model.train()
 print('Done !!!')
@@ -70,7 +68,7 @@ optimizer_grouped_parameters = [
 
 # optimizer
 optimizer = AdamW(optimizer_grouped_parameters, lr=learning_rate)
-scheduler = get_linear_schedule_with_warmup(optimizer, 4500, num_train_steps)
+scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, num_train_steps)
 scaler = amp.GradScaler()
 loss_sum = 0
 accum = 0
