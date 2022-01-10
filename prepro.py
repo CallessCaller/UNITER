@@ -2,9 +2,7 @@ import enum
 import torch
 import torch.nn as F
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import Dataset, DataLoader, TensorDataset
-from transformers.models.bert import tokenization_bert
-from model.pretrain_vcr import UniterForPretrainingForVCR
+from torch.utils.data import Dataset, DataLoader, ConcatDataset
 from transformers import BertTokenizer
 
 import json
@@ -69,6 +67,21 @@ uniter needs xyxywha format
 '''
 F.kl_div(F.log_softmax(k, 0), F.softmax(k1, 0), reduction="none").mean()
 '''
+
+# class ConcatDatasetWithLens(ConcatDataset):
+#     """ A thin wrapper on pytorch concat dataset for lens batching """
+#     def __init__(self, datasets):
+#         super().__init__(datasets)
+#         self.lens = [l for dset in datasets for l in len(dset)]
+
+#     def __getattr__(self, name):
+#         return self._run_method_on_all_dsets(name)
+
+#     def _run_method_on_all_dsets(self, name):
+#         def run_all(*args, **kwargs):
+#             return [dset.__getattribute__(name)(*args, **kwargs)
+#                     for dset in self.datasets]
+#         return run_all
 
 def random_word(tokens, vocab_range=(999, 30522), mask=103):
     """
@@ -314,10 +327,7 @@ q + a1 + a2 + a3 + a4, 0 + 2
 q + a + r1 + r2 + r3 + r4, 0 + 2 + 3
 
 train: qa 하고 qar
-validation qa, qar 동시에
-q + a1 + a2 + a3 + a4, + 2
-or
-q + a1 + a2 + a3 + a4 + r1 + r2 + r3 + r4, 0 + 2 + 3
+validation qa, qar 동시에, but 형식은 같음
 '''
 
 class FinetuneDataForVCR(Dataset):
@@ -423,7 +433,16 @@ def vcr_collate(inputs):
 def list_to_str(text_list):
     for i, ele in enumerate(text_list):
         if type(ele) == type([]):
-            text_list[i] = str(ele)
+            tmp = ''
+            for j, e in enumerate(ele):
+                tmp += str(e)
+                if  j == 0 and len(ele) > 2:
+                    tmp += ' , '
+                else:
+                    if (j+1) != len(ele):
+                        tmp += ' and '
+            text_list[i] =tmp 
+    # print(" ".join(text_list))
     return " ".join(text_list)
 
 class ValidationDataForVCR(Dataset):
@@ -486,7 +505,7 @@ class ValidationDataForVCR(Dataset):
                             roi_feature.squeeze(0), pos.squeeze(0),
                             torch.Tensor(attention_mask)))
         else:
-            question = self.tokenzier(list_to_str(self.data.question[index]))
+            question = self.tokenzier(list_to_str(self.data.question[index]), return_token_type_ids=False)
             answer_choices = self.data.answer_choices[index]
             for i, answer_choice in enumerate(answer_choices):
                 answer = self.tokenzier(list_to_str(answer_choice), return_token_type_ids=False)
