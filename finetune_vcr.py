@@ -31,7 +31,7 @@ accum_steps = args.accum_steps
 num_train_steps = 8000
 valid_steps = num_train_steps // 10
 batch_size = args.batch_size #4000
-val_batch_size = 256
+val_batch_size = 64
 learning_rate = 6e-05
 
 import time

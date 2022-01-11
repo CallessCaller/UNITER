@@ -193,9 +193,9 @@ class PretrainDataForVCR(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
-        question = self.tokenzier(self.data.question_orig[index], return_token_type_ids=False)
-        answer = self.tokenzier(self.data.answer_orig[index], return_token_type_ids=False)
-        rationale = self.tokenzier(self.data.rationale_orig[index], return_token_type_ids=False)
+        question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False)
+        answer = self.tokenzier(list_to_str_only(self.data.answer_choices[index][self.data.answer_label[index]]), return_token_type_ids=False)
+        rationale = self.tokenzier(list_to_str_only(self.data.rationale_choices[index][self.data.answer_label[index]]), return_token_type_ids=False)
         # type_id
         # 0 -- question
         # 1 -- region
@@ -520,7 +520,7 @@ class ValidationDataForVCR(Dataset):
 
             rationale_choices = self.data.rationale_choices[index]
             answer =  self.tokenzier(list_to_str_only(answer_choices[answer_label]), return_token_type_ids=False)
-            
+
             for i, rationale_choice in enumerate(rationale_choices):
                 rationale = self.tokenzier(list_to_str_only(rationale_choice), return_token_type_ids=False)
                 tmp = copy.deepcopy(question)
