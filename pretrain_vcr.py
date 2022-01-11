@@ -133,20 +133,20 @@ def validate(model, val_dataloader):
         mlm_loss /= n_word
         acc = n_correct / n_word
         print(f"MLM Val Loss: {mlm_loss} | MLM Val ACC: {acc*100}%")
-        writer.add_scalar("val_mlm_loss", mlm_loss, current_steps)
-        writer.add_scalar("val_mlm_acc", acc*100, current_steps)
+        writer.add_scalar("pre_val/val_mlm_loss", mlm_loss, current_steps)
+        writer.add_scalar("pre_val/val_mlm_acc", acc*100, current_steps)
 
         #mrc
         mrc_loss /= n_feat
         val_acc = tot_score / n_feat
-        print(f"MRC Val Loss: {mrc_loss} | MLM Val ACC: {val_acc*100}%")
-        writer.add_scalar("val_mrc_loss", mrc_loss, current_steps)
-        writer.add_scalar("val_mrc_acc", val_acc*100, current_steps)
+        print(f"MRC Val Loss: {mrc_loss} | MRC Val ACC: {val_acc*100}%")
+        writer.add_scalar("pre_val/val_mrc_loss", mrc_loss, current_steps)
+        writer.add_scalar("pre_val/val_mrc_acc", val_acc*100, current_steps)
 
         #mrfr
         mrfr_loss /= n_feat
         print(f"MRFR Val Loss: {mrfr_loss}")
-        writer.add_scalar("val_mrfr_loss", mrfr_loss, current_steps)
+        writer.add_scalar("pre_val/val_mrfr_loss", mrfr_loss, current_steps)
         model.train()
 
 model.train()
@@ -179,11 +179,11 @@ with tqdm(total=num_train_steps) as pbar:
                         accum += 1
 
                         if task == 'mlm':
-                                writer.add_scalar("loss_mlm", loss.item(), current_steps)
+                                writer.add_scalar("pre_train/loss_mlm", loss.item(), current_steps)
                         elif task == 'mrc':
-                                writer.add_scalar("loss_mrc", loss.item(), current_steps)
+                                writer.add_scalar("pre_train/loss_mrc", loss.item(), current_steps)
                         else:
-                                writer.add_scalar("loss_mrfr", loss.item(), current_steps)
+                                writer.add_scalar("pre_train/loss_mrfr", loss.item(), current_steps)
 
                         if accum != accum_steps:
                                 writer.flush()
@@ -198,8 +198,8 @@ with tqdm(total=num_train_steps) as pbar:
                         current_steps += 1
                         pbar.update(1)
 
-                        writer.add_scalar("lr", optimizer.param_groups[0]['lr'], current_steps)
-                        writer.add_scalar("total_loss", loss_sum/accum_steps, current_steps)
+                        writer.add_scalar("pre_train/lr", optimizer.param_groups[0]['lr'], current_steps)
+                        writer.add_scalar("pre_train/total_loss", loss_sum/accum_steps, current_steps)
                         
 
                         loss_sum = 0
@@ -238,8 +238,8 @@ def validate_mlm(model, val_loader):
         val_loss /= n_word
         acc = n_correct / n_word
         print(f"MLM Val Loss: {val_loss} | MLM Val ACC: {acc*100}%")
-        writer.add_scalar("val_mlm_loss", val_loss, current_steps)
-        writer.add_scalar("val_mlm_acc", acc*100, current_steps)
+        writer.add_scalar("pre_val/val_mlm_loss", val_loss, current_steps)
+        writer.add_scalar("pre_val/val_mlm_acc", acc*100, current_steps)
 
 @torch.no_grad()
 def validate_mrc(model, val_loader):
@@ -261,8 +261,8 @@ def validate_mrc(model, val_loader):
         val_loss /= n_feat
         val_acc = tot_score / n_feat
         print(f"MRC Val Loss: {val_loss} | MLM Val ACC: {val_acc*100}%")
-        writer.add_scalar("val_mrc_loss", val_loss, current_steps)
-        writer.add_scalar("val_mrc_acc", val_acc*100, current_steps)
+        writer.add_scalar("pre_val/val_mrc_loss", val_loss, current_steps)
+        writer.add_scalar("pre_val/val_mrc_acc", val_acc*100, current_steps)
 
 @torch.no_grad()
 def validate_mrfr(model, val_loader):
@@ -275,6 +275,6 @@ def validate_mrfr(model, val_loader):
                 n_feat += batch['img_mask_tgt'].cuda().sum().item()
         val_loss /= n_feat
         print(f"MRFR Val Loss: {val_loss}")
-        writer.add_scalar("val_mrfr_loss", val_loss, current_steps)
+        writer.add_scalar("pre_val/val_mrfr_loss", val_loss, current_steps)
 
 

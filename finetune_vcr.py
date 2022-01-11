@@ -28,10 +28,10 @@ args = parser.parse_args()
 
 warmup_steps = 800
 accum_steps = args.accum_steps
-num_train_steps = 20000
+num_train_steps = 8000
 valid_steps = num_train_steps // 10
 batch_size = args.batch_size #4000
-val_batch_size = 8
+val_batch_size = 256
 learning_rate = 6e-05
 
 import time
@@ -56,10 +56,10 @@ print('Done !!!')
 
 # model
 print('Loading model...')
-#checkpoint = torch.load('ckpt/UNITER_2nd_45000_32_4')
+#checkpoint = torch.load('ckpt/UNITER_2nd_45000_64_4')
 checkpoint = torch.load('pretrained/uniter-base.pt')
+#model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base_vcr.json', checkpoint, img_dim=2048)
 model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048)
-# model.config.type_vocab_size = 4
 model.init_type_embedding()
 model.cuda()
 model.train()
@@ -146,6 +146,7 @@ def validate(model, val_loader):
     writer.flush()
     model.train()
 
+
 with tqdm(total=num_train_steps) as pbar:
     for epoch in range(100):
         for i, batch in enumerate(train_dataloader):
@@ -170,8 +171,8 @@ with tqdm(total=num_train_steps) as pbar:
             current_steps += 1
             pbar.update(1)
 
-            writer.add_scalar("lr", optimizer.param_groups[0]['lr'], current_steps)
-            writer.add_scalar("total_loss", loss_sum/accum_steps, current_steps)
+            writer.add_scalar("train/lr", optimizer.param_groups[0]['lr'], current_steps)
+            writer.add_scalar("train/total_loss", loss_sum/accum_steps, current_steps)
 
             loss_sum = 0
 

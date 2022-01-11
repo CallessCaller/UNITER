@@ -330,6 +330,12 @@ train: qa 하고 qar
 validation qa, qar 동시에, but 형식은 같음
 '''
 
+def list_to_str_only(text_list):
+    for i, ele in enumerate(text_list):
+        if type(ele) == type([]):
+            text_list[i] = str(ele)
+    return " ".join(text_list)
+
 class FinetuneDataForVCR(Dataset):
     def __init__(self, data_type='train', task='qa'):
         super().__init__()
@@ -357,19 +363,25 @@ class FinetuneDataForVCR(Dataset):
         pos = torch.cat((pos, height.unsqueeze(-1)), dim=-1)
         pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
 
-        question = self.tokenzier(self.data.question_orig[index], return_token_type_ids=False)
+        question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False, return_attention_mask=False)
+        answer_choices = self.data.answer_choices[index]
+
+        answer_label = self.data.answer_label[index]
+        rationale_label = self.data.rationale_label[index]
         if self.task == 'qa':
             # qa
-            answer_index = self.data.answer_sources[index]
             out = []
-            for i in answer_index:
-                answer = self.tokenzier(self.data.answer_orig[i], return_token_type_ids=False)
+            for i, answer_choice in enumerate(answer_choices):
+                answer = self.tokenzier(list_to_str_only(answer_choice), return_token_type_ids=False, return_attention_mask=False)
                 tmp = copy.deepcopy(question)
                 tokenized = tmp['input_ids'] + answer['input_ids'][1:]
                 token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
-                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
+                if len(tokenized) > 220:
+                    tokenized = tokenized[:219] + [tokenized[-1]]
+                    token_type_ids = token_type_ids[:220]
+                attention_mask = [1 for _ in range(nb + len(tokenized))]
 
-                if index == i:
+                if i == answer_label:
                     target = torch.Tensor([1]).long()
                 else:
                     target = torch.Tensor([0]).long()
@@ -378,18 +390,21 @@ class FinetuneDataForVCR(Dataset):
                             torch.Tensor(attention_mask), target))
         else:
             # qar
-            rationale_index = self.data.rationale_sources[index]
-            answer =  self.tokenzier(self.data.answer_orig[index], return_token_type_ids=False)
+            rationale_choices = self.data.rationale_choices[index]
+            answer =  self.tokenzier(list_to_str_only(answer_choices[answer_label]), return_token_type_ids=False, return_attention_mask=False)
             out = []
-            for i in rationale_index:
-                rationale = self.tokenzier(self.data.rationale_orig[i], return_token_type_ids=False)
+            for i, rationale_choice in enumerate(rationale_choices):
+                rationale = self.tokenzier(list_to_str_only(rationale_choice), return_token_type_ids=False, return_attention_mask=False)
                 tmp = copy.deepcopy(question)
                 tmp_a = copy.deepcopy(answer)
                 tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
                 token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(tmp_a['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
-                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
+                if len(tokenized) > 220:
+                    tokenized = tokenized[:219] + [tokenized[-1]]
+                    token_type_ids = token_type_ids[:220]
+                attention_mask = [1 for _ in range(nb + len(tokenized))]
 
-                if index == i:
+                if i == rationale_label:
                     target = torch.Tensor([1])
                 else:
                     target = torch.Tensor([0])
@@ -430,24 +445,24 @@ def vcr_collate(inputs):
 
     return batch
     
-def list_to_str(text_list):
-    '''
-    [0, 1] => 0 and 1
-    [0, 1, 2] => 0, 1 and 2
-    '''
-    for i, ele in enumerate(text_list):
-        if type(ele) == type([]):
-            tmp = ''
-            for j, e in enumerate(ele):
-                tmp += str(e)
-                if j > 0 and (j+2) == len(ele):
-                    tmp += ' and '
-                elif (j+1) == len(ele):
-                    continue
-                else:
-                    tmp += ' , '
-            text_list[i] =tmp 
-    return " ".join(text_list)
+# def list_to_str(text_list):
+#     '''
+#     [0, 1] => 0 and 1
+#     [0, 1, 2] => 0, 1 and 2
+#     '''
+#     for i, ele in enumerate(text_list):
+#         if type(ele) == type([]):
+#             tmp = ''
+#             for j, e in enumerate(ele):
+#                 tmp += str(e + 1)
+#                 if j > 0 and (j+2) == len(ele):
+#                     tmp += ' and '
+#                 elif (j+1) == len(ele):
+#                     continue
+#                 else:
+#                     tmp += ' , '
+#             text_list[i] =tmp 
+#     return " ".join(text_list)
 
 class ValidationDataForVCR(Dataset):
     def __init__(self, data_type='val'):
@@ -484,12 +499,16 @@ class ValidationDataForVCR(Dataset):
         pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
         
         out = []
-        # qa
+        
         if 'gd' not in self.data_type:
-            question = self.tokenzier(self.data.question_orig[index], return_token_type_ids=False)
-            answer_index = self.data.answer_sources[index]
-            for i in answer_index:
-                answer = self.tokenzier(self.data.answer_orig[i], return_token_type_ids=False)
+            question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False)
+            answer_choices = self.data.answer_choices[index]
+
+            answer_label = self.data.answer_label[index]
+            rationale_label = self.data.rationale_label[index]
+
+            for i, answer_choice in enumerate(answer_choices):
+                answer = self.tokenzier(list_to_str_only(answer_choice), return_token_type_ids=False)
                 tmp = copy.deepcopy(question)
                 tokenized = tmp['input_ids'] + answer['input_ids'][1:]
                 token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
@@ -499,10 +518,11 @@ class ValidationDataForVCR(Dataset):
                             roi_feature.squeeze(0), pos.squeeze(0),
                             torch.Tensor(attention_mask)))
 
-            rationale_index = self.data.rationale_sources[index]
-            answer =  self.tokenzier(self.data.answer_orig[index], return_token_type_ids=False)
-            for i in rationale_index:
-                rationale = self.tokenzier(self.data.rationale_orig[i], return_token_type_ids=False)
+            rationale_choices = self.data.rationale_choices[index]
+            answer =  self.tokenzier(list_to_str_only(answer_choices[answer_label]), return_token_type_ids=False)
+            
+            for i, rationale_choice in enumerate(rationale_choices):
+                rationale = self.tokenzier(list_to_str_only(rationale_choice), return_token_type_ids=False)
                 tmp = copy.deepcopy(question)
                 tmp_a = copy.deepcopy(answer)
                 tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
@@ -512,11 +532,12 @@ class ValidationDataForVCR(Dataset):
                 out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
                             roi_feature.squeeze(0), pos.squeeze(0),
                             torch.Tensor(attention_mask)))
+
         else:
-            question = self.tokenzier(list_to_str(self.data.question[index]), return_token_type_ids=False)
+            question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False)
             answer_choices = self.data.answer_choices[index]
             for i, answer_choice in enumerate(answer_choices):
-                answer = self.tokenzier(list_to_str(answer_choice), return_token_type_ids=False)
+                answer = self.tokenzier(list_to_str_only(answer_choice), return_token_type_ids=False)
                 tmp = copy.deepcopy(question)
                 tokenized = tmp['input_ids'] + answer['input_ids'][1:]
                 token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
@@ -527,9 +548,9 @@ class ValidationDataForVCR(Dataset):
                             torch.Tensor(attention_mask)))
             
             rationale_choices = self.data.rationale_choices[index]
-            answer =  self.tokenzier(list_to_str(self.data.answer_choices[index][self.data.answer_label[index]]), return_token_type_ids=False)
+            answer =  self.tokenzier(list_to_str_only(self.data.answer_choices[index][self.data.answer_label[index]]), return_token_type_ids=False)
             for i, rationale_choice in enumerate(rationale_choices):
-                rationale = self.tokenzier(list_to_str(rationale_choice), return_token_type_ids=False)
+                rationale = self.tokenzier(list_to_str_only(rationale_choice), return_token_type_ids=False)
                 tmp = copy.deepcopy(question)
                 tmp_a = copy.deepcopy(answer)
                 tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
