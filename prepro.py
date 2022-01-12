@@ -420,6 +420,7 @@ def list_to_str_only(text_list):
     return " ".join(text_list)
 
 
+# From UNITER repo
 def random_word(tokens, vocab_range=(999, 28996), mask=103):
     """
     Masking some random tokens for Language Model task with probabilities as in
