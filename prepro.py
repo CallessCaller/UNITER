@@ -19,11 +19,6 @@ imagePATH = '/mnt3/user16/vcr/vcr1images/'
 # annotPATH = '/home/vcr/vcr1annots/'
 # imagePATH = '/home/vcr/vcr1images/'
 
-"""
-순서를 이렇게 바꿔서도 한번 해보자
-        [[txt, img1],
-         [txt, img2]]
-        """
 
 '''
 def forward(self, batch, task, compute_loss=True):
@@ -36,20 +31,8 @@ def forward(self, batch, task, compute_loss=True):
         gather_index = batch['gather_index']    x
         txt_type_ids = batch['txt_type_ids']    o
 
-         """
-        Return:
-        :input_ids    (n, max_L) padded with 0
-        :position_ids (n, max_L) padded with 0
-        :txt_lens     list of [txt_len]
-        :img_feat     (n, max_num_bb, feat_dim)
-        :img_pos_feat (n, max_num_bb, 7)
-        :num_bbs      list of [num_bb]
-        :attn_masks   (n, max_{L + num_bb}) padded with 0
-        :txt_labels   (n, max_L) padded with -1
-        """
-'''
 
-'''
+-- VCR annotation format --
 ['movie', 'objects', 'interesting_scores', 'answer_likelihood', 'img_fn',
 'metadata_fn', 'answer_orig', 'question_orig', 'rationale_orig',
 'question', 'answer_match_iter', 'answer_sources', 'answer_choices',
@@ -57,131 +40,18 @@ def forward(self, batch, task, compute_loss=True):
 'rationale_match_iter', 'rationale_label', 'img_id', 'question_number',
 'annot_id', 'match_fold', 'match_index']
 
-['obj_ids', 'obj_probs', 'attr_ids', 'attr_probs', 'boxes', 'sizes', 'preds_per_image', 'roi_features', 'normalized_boxes']
+-- VCR image format --
+['obj_ids', 'obj_probs', 'attr_ids', 'attr_probs', 
+'boxes', 'sizes', 'preds_per_image', 
+'roi_features', 'normalized_boxes']
 
+-- VCR metadata format --
 dict_keys(['boxes', 'segms', 'names', 'width', 'height'])
 box is x1y1 x2y2 format
 uniter needs xyxywha format
 '''
 
-'''
-F.kl_div(F.log_softmax(k, 0), F.softmax(k1, 0), reduction="none").mean()
-'''
-
-# class ConcatDatasetWithLens(ConcatDataset):
-#     """ A thin wrapper on pytorch concat dataset for lens batching """
-#     def __init__(self, datasets):
-#         super().__init__(datasets)
-#         self.lens = [l for dset in datasets for l in len(dset)]
-
-#     def __getattr__(self, name):
-#         return self._run_method_on_all_dsets(name)
-
-#     def _run_method_on_all_dsets(self, name):
-#         def run_all(*args, **kwargs):
-#             return [dset.__getattribute__(name)(*args, **kwargs)
-#                     for dset in self.datasets]
-#         return run_all
-
-def random_word(tokens, vocab_range=(999, 28996), mask=103):
-    """
-    Masking some random tokens for Language Model task with probabilities as in
-        the original BERT paper.
-    :param tokens: list of int, tokenized sentence.
-    :param vocab_range: for choosing a random word
-    :return: (list of int, list of int), masked tokens and related labels for
-        LM prediction
-    """
-    output_label = []
-
-    for i, token in enumerate(tokens):
-        prob = random.random()
-        # mask token with 15% probability
-        if prob < 0.15:
-            prob /= 0.15
-
-            # 80% randomly change token to mask token
-            if prob < 0.8:
-                tokens[i] = mask
-
-            # 10% randomly change token to random token
-            elif prob < 0.9:
-                tokens[i] = random.choice(list(range(*vocab_range)))
-
-            # -> rest 10% randomly keep current token
-
-            # append current token to output (we will predict these later)
-            output_label.append(token)
-        else:
-            # no masking token (will be ignored by loss function later)
-            output_label.append(-1)
-    if all(o == -1 for o in output_label):
-        # at least mask 1
-        output_label[0] = tokens[0]
-        tokens[0] = mask
-
-    return tokens, output_label
-
-
-def _get_img_mask(mask_prob, num_bb):
-    img_mask = [random.random() < mask_prob for _ in range(num_bb)]
-    if not any(img_mask):
-        # at least mask 1
-        img_mask[random.choice(range(num_bb))] = True
-    img_mask = torch.tensor(img_mask)
-    return img_mask
-
-def _get_img_tgt_mask(img_mask, txt_len):
-    z = torch.zeros(txt_len, dtype=torch.float32)
-    img_mask_tgt = torch.cat([z, img_mask], dim=0)
-    return img_mask_tgt
-
-def _get_feat_target(img_feat, img_masks):
-    img_masks_ext = img_masks.unsqueeze(-1).expand_as(img_feat)  # (n, m, d)
-    feat_dim = img_feat.size(-1)
-    feat_targets = img_feat[img_masks_ext].contiguous().view(
-        -1, feat_dim)  # (s, d)
-    return feat_targets
-
-def _mask_img_feat(img_feat, img_masks):
-    img_masks_ext = img_masks.unsqueeze(-1).expand_as(img_feat)
-    img_feat_masked = img_feat.data.masked_fill(img_masks_ext, 0)
-    return img_feat_masked
-
-def _get_targets(img_masks, img_soft_label):
-    soft_label_dim = img_soft_label.size(-1)
-    img_masks_ext_for_label = img_masks.unsqueeze(-1).expand_as(img_soft_label)
-    label_targets = img_soft_label[img_masks_ext_for_label].contiguous().view(
-        -1, soft_label_dim)
-    return label_targets
-
-def pad_tensors(tensors, lens=None, pad=0):
-    """B x [T, ...]"""
-    if lens is None:
-        lens = [t.size(0) for t in tensors]
-    max_len = max(lens)
-    bs = len(tensors)
-    hid = tensors[0].size(-1)
-    dtype = tensors[0].dtype
-    output = torch.zeros(bs, max_len, hid, dtype=dtype)
-    if pad:
-        output.data.fill_(pad)
-    for i, (t, l) in enumerate(zip(tensors, lens)):
-        output.data[i, :l, ...] = t.data
-    return output
-
-def get_gather_index(txt_lens, num_bbs, batch_size, max_len, out_size):
-    assert len(txt_lens) == len(num_bbs) == batch_size
-    gather_index = torch.arange(0, out_size, dtype=torch.long,
-                                ).unsqueeze(0).repeat(batch_size, 1)
-
-    for i, (tl, nbb) in enumerate(zip(txt_lens, num_bbs)):
-        gather_index.data[i, tl:tl+nbb] = torch.arange(max_len, max_len+nbb,
-                                                       dtype=torch.long).data
-    return gather_index
-
-
-## Here to start
+### For Pretraining
 class PretrainDataForVCR(Dataset):
     def __init__(self, data_type='train'):
         super().__init__()
@@ -215,8 +85,6 @@ class PretrainDataForVCR(Dataset):
         
         token_type_ids = [0 for _ in range(len(question['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
 
-        # with open(imagePATH + self.data.metadata_fn[index], 'r') as f:
-        #     meta = json.load(f)
         with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
             feature = pickle.load(f)
         
@@ -237,7 +105,6 @@ class PretrainDataForVCR(Dataset):
         # for mrfr, mrc
         img_mask = _get_img_mask(0.15, nb)
         img_mask_tgt = _get_img_tgt_mask(img_mask, len(tokenzied))
-        #print(roi_feature.squeeze(0).type(),pos.squeeze(0).type(),softlabel.squeeze(0).type(),img_mask.type(),img_mask_tgt.type())
         
         return (torch.Tensor(tokenzied),
                 torch.Tensor(token_type_ids),
@@ -249,7 +116,6 @@ class PretrainDataForVCR(Dataset):
                 torch.Tensor(txt_label),
                 img_mask.float(),
                 img_mask_tgt.float())
-
 
 def collate(batch):
     (input_ids, txt_type_ids, attn_masks, img_feat, img_pos, softlabel, maksed_tokenzied, txt_label, img_mask, img_mask_tgt) = map(list, unzip(batch))
@@ -299,15 +165,7 @@ def collate(batch):
     return batch
 
 
-# dataset = PretrainDataForVCR(data_type='val')
-# dataloader = DataLoader(dataset, batch_size=4, shuffle=True, collate_fn=collate)
-
-# for i, batch in enumerate(dataloader):
-#     print('New Batch! ', i)
-#     print(batch)
-#     if i == 2: break
-
-### for finetuning
+### For Fintuning & Validation
 '''
 batch = defaultdict(lambda: None, batch)
         input_ids = batch['input_ids']
@@ -330,11 +188,7 @@ train: qa 하고 qar
 validation qa, qar 동시에, but 형식은 같음
 '''
 
-def list_to_str_only(text_list):
-    for i, ele in enumerate(text_list):
-        if type(ele) == type([]):
-            text_list[i] = str(ele)
-    return " ".join(text_list)
+
 
 class FinetuneDataForVCR(Dataset):
     def __init__(self, data_type='train', task='qa'):
@@ -444,25 +298,7 @@ def vcr_collate(inputs):
              'targets': targets.long()}
 
     return batch
-    
-# def list_to_str(text_list):
-#     '''
-#     [0, 1] => 0 and 1
-#     [0, 1, 2] => 0, 1 and 2
-#     '''
-#     for i, ele in enumerate(text_list):
-#         if type(ele) == type([]):
-#             tmp = ''
-#             for j, e in enumerate(ele):
-#                 tmp += str(e + 1)
-#                 if j > 0 and (j+2) == len(ele):
-#                     tmp += ' and '
-#                 elif (j+1) == len(ele):
-#                     continue
-#                 else:
-#                     tmp += ' , '
-#             text_list[i] =tmp 
-#     return " ".join(text_list)
+
 
 class ValidationDataForVCR(Dataset):
     def __init__(self, data_type='val'):
@@ -499,70 +335,39 @@ class ValidationDataForVCR(Dataset):
         pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
         
         out = []
-        
-        if 'gd' not in self.data_type:
-            question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False)
-            answer_choices = self.data.answer_choices[index]
 
-            answer_label = self.data.answer_label[index]
-            rationale_label = self.data.rationale_label[index]
+        question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False)
+        answer_choices = self.data.answer_choices[index]
 
-            for i, answer_choice in enumerate(answer_choices):
-                answer = self.tokenzier(list_to_str_only(answer_choice), return_token_type_ids=False)
-                tmp = copy.deepcopy(question)
-                tokenized = tmp['input_ids'] + answer['input_ids'][1:]
-                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
-                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
+        answer_label = self.data.answer_label[index]
 
-                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                            roi_feature.squeeze(0), pos.squeeze(0),
-                            torch.Tensor(attention_mask)))
+        for i, answer_choice in enumerate(answer_choices):
+            answer = self.tokenzier(list_to_str_only(answer_choice), return_token_type_ids=False)
+            tmp = copy.deepcopy(question)
+            tokenized = tmp['input_ids'] + answer['input_ids'][1:]
+            token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
+            attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
 
-            rationale_choices = self.data.rationale_choices[index]
-            answer =  self.tokenzier(list_to_str_only(answer_choices[answer_label]), return_token_type_ids=False)
+            out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                        roi_feature.squeeze(0), pos.squeeze(0),
+                        torch.Tensor(attention_mask)))
 
-            for i, rationale_choice in enumerate(rationale_choices):
-                rationale = self.tokenzier(list_to_str_only(rationale_choice), return_token_type_ids=False)
-                tmp = copy.deepcopy(question)
-                tmp_a = copy.deepcopy(answer)
-                tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
-                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(tmp_a['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
-                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
+        rationale_choices = self.data.rationale_choices[index]
+        answer =  self.tokenzier(list_to_str_only(answer_choices[answer_label]), return_token_type_ids=False)
 
-                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                            roi_feature.squeeze(0), pos.squeeze(0),
-                            torch.Tensor(attention_mask)))
+        for i, rationale_choice in enumerate(rationale_choices):
+            rationale = self.tokenzier(list_to_str_only(rationale_choice), return_token_type_ids=False)
+            tmp = copy.deepcopy(question)
+            tmp_a = copy.deepcopy(answer)
+            tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
+            token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(tmp_a['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
+            attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
 
-        else:
-            question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False)
-            answer_choices = self.data.answer_choices[index]
-            for i, answer_choice in enumerate(answer_choices):
-                answer = self.tokenzier(list_to_str_only(answer_choice), return_token_type_ids=False)
-                tmp = copy.deepcopy(question)
-                tokenized = tmp['input_ids'] + answer['input_ids'][1:]
-                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
-                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
-
-                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                            roi_feature.squeeze(0), pos.squeeze(0),
-                            torch.Tensor(attention_mask)))
-            
-            rationale_choices = self.data.rationale_choices[index]
-            answer =  self.tokenzier(list_to_str_only(self.data.answer_choices[index][self.data.answer_label[index]]), return_token_type_ids=False)
-            for i, rationale_choice in enumerate(rationale_choices):
-                rationale = self.tokenzier(list_to_str_only(rationale_choice), return_token_type_ids=False)
-                tmp = copy.deepcopy(question)
-                tmp_a = copy.deepcopy(answer)
-                tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
-                token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(tmp_a['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
-                attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
-
-                out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                            roi_feature.squeeze(0), pos.squeeze(0),
-                            torch.Tensor(attention_mask)))
+            out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
+                        roi_feature.squeeze(0), pos.squeeze(0),
+                        torch.Tensor(attention_mask)))
 
         return tuple(out), qid, qa_target, qar_target
-
 
 def vcr_val_collate(inputs):
     (input_ids, txt_type_ids, img_feat, img_pos, attn_masks) = map(
@@ -602,3 +407,118 @@ def vcr_val_collate(inputs):
              'qar_targets': qar_targets.long()}
 
     return batch
+
+
+'''
+F.kl_div(F.log_softmax(k, 0), F.softmax(k1, 0), reduction="none").mean()
+'''
+
+def list_to_str_only(text_list):
+    for i, ele in enumerate(text_list):
+        if type(ele) == type([]):
+            text_list[i] = str(ele)
+    return " ".join(text_list)
+
+
+def random_word(tokens, vocab_range=(999, 28996), mask=103):
+    """
+    Masking some random tokens for Language Model task with probabilities as in
+        the original BERT paper.
+    :param tokens: list of int, tokenized sentence.
+    :param vocab_range: for choosing a random word
+    :return: (list of int, list of int), masked tokens and related labels for
+        LM prediction
+    """
+    output_label = []
+
+    for i, token in enumerate(tokens):
+        prob = random.random()
+        # mask token with 15% probability
+        if prob < 0.15:
+            prob /= 0.15
+
+            # 80% randomly change token to mask token
+            if prob < 0.8:
+                tokens[i] = mask
+
+            # 10% randomly change token to random token
+            elif prob < 0.9:
+                tokens[i] = random.choice(list(range(*vocab_range)))
+
+            # -> rest 10% randomly keep current token
+
+            # append current token to output (we will predict these later)
+            output_label.append(token)
+        else:
+            # no masking token (will be ignored by loss function later)
+            output_label.append(-1)
+    if all(o == -1 for o in output_label):
+        # at least mask 1
+        output_label[0] = tokens[0]
+        tokens[0] = mask
+
+    return tokens, output_label
+
+
+def _get_img_mask(mask_prob, num_bb):
+    img_mask = [random.random() < mask_prob for _ in range(num_bb)]
+    if not any(img_mask):
+        # at least mask 1
+        img_mask[random.choice(range(num_bb))] = True
+    img_mask = torch.tensor(img_mask)
+    return img_mask
+
+
+def _get_img_tgt_mask(img_mask, txt_len):
+    z = torch.zeros(txt_len, dtype=torch.float32)
+    img_mask_tgt = torch.cat([z, img_mask], dim=0)
+    return img_mask_tgt
+
+
+def _get_feat_target(img_feat, img_masks):
+    img_masks_ext = img_masks.unsqueeze(-1).expand_as(img_feat)  # (n, m, d)
+    feat_dim = img_feat.size(-1)
+    feat_targets = img_feat[img_masks_ext].contiguous().view(
+        -1, feat_dim)  # (s, d)
+    return feat_targets
+
+
+def _mask_img_feat(img_feat, img_masks):
+    img_masks_ext = img_masks.unsqueeze(-1).expand_as(img_feat)
+    img_feat_masked = img_feat.data.masked_fill(img_masks_ext, 0)
+    return img_feat_masked
+
+
+def _get_targets(img_masks, img_soft_label):
+    soft_label_dim = img_soft_label.size(-1)
+    img_masks_ext_for_label = img_masks.unsqueeze(-1).expand_as(img_soft_label)
+    label_targets = img_soft_label[img_masks_ext_for_label].contiguous().view(
+        -1, soft_label_dim)
+    return label_targets
+
+
+def pad_tensors(tensors, lens=None, pad=0):
+    """B x [T, ...]"""
+    if lens is None:
+        lens = [t.size(0) for t in tensors]
+    max_len = max(lens)
+    bs = len(tensors)
+    hid = tensors[0].size(-1)
+    dtype = tensors[0].dtype
+    output = torch.zeros(bs, max_len, hid, dtype=dtype)
+    if pad:
+        output.data.fill_(pad)
+    for i, (t, l) in enumerate(zip(tensors, lens)):
+        output.data[i, :l, ...] = t.data
+    return output
+
+
+def get_gather_index(txt_lens, num_bbs, batch_size, max_len, out_size):
+    assert len(txt_lens) == len(num_bbs) == batch_size
+    gather_index = torch.arange(0, out_size, dtype=torch.long,
+                                ).unsqueeze(0).repeat(batch_size, 1)
+
+    for i, (tl, nbb) in enumerate(zip(txt_lens, num_bbs)):
+        gather_index.data[i, tl:tl+nbb] = torch.arange(max_len, max_len+nbb,
+                                                       dtype=torch.long).data
+    return gather_index
