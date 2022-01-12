@@ -23,14 +23,19 @@ torch.random.manual_seed(42)
 # config 
 parser = argparse.ArgumentParser(description='Config')
 parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--accum_steps', type=int, default=5)
+parser.add_argument('--accum_step', type=int, default=5)
+parser.add_argument('--train_step', type=int, default=8000)
+parser.add_argument('--ckpt', type=str, default='pretrained/uniter-base.pt')
 args = parser.parse_args()
 
-warmup_steps = 800
-accum_steps = args.accum_steps
-num_train_steps = 8000
-valid_steps = num_train_steps // 10
+
 batch_size = args.batch_size #4000
+accum_steps = args.accum_step
+num_train_steps = args.train_step
+ckpt = args.ckpt
+ckpt_short = ckpt.split('/')[1].replace('.pt', '')
+warmup_steps = num_train_steps / 10
+valid_steps = 2000
 val_batch_size = 64
 learning_rate = 6e-05
 
@@ -39,13 +44,11 @@ import os
 current_time = time.time()
 os.mkdir(f'ckpt/{current_time}')
 
-writer = SummaryWriter(f"./log_finetune/{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
+writer = SummaryWriter(f"./log_finetune/{ckpt_short}_{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
 
 print('Loading dataset...')
 qa_dataset = FinetuneDataForVCR(data_type='train', task='qa')
-#qa_dataloader = DataLoader(qa_dataset, batch_size=batch_size, shuffle=True, collate_fn=vcr_collate, num_workers=10)
 qar_dataset = FinetuneDataForVCR(data_type='train', task='qar')
-#qar_dataloader = DataLoader(qar_dataset, batch_size=batch_size, shuffle=True, collate_fn=vcr_collate, num_workers=10)
 
 train_dataset = ConcatDataset([qa_dataset, qar_dataset])
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=vcr_collate, num_workers=10)
@@ -56,11 +59,13 @@ print('Done !!!')
 
 # model
 print('Loading model...')
-#checkpoint = torch.load('ckpt/UNITER_2nd_45000_64_4')
-checkpoint = torch.load('pretrained/uniter-base.pt')
-#model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base_vcr.json', checkpoint, img_dim=2048)
-model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048)
-model.init_type_embedding()
+checkpoint = torch.load(ckpt)
+if 'pretrain' in ckpt:
+    model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048)
+    model.init_type_embedding()
+else:
+    ## 2nd stage pretrained
+    model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base_vcr.json', checkpoint, img_dim=2048)
 model.cuda()
 model.train()
 print('Done !!!')
@@ -181,10 +186,11 @@ with tqdm(total=num_train_steps) as pbar:
             # validation & model save
             if current_steps % valid_steps == 0:
                 validate(model, val_dataloader)
-                torch.save(model.state_dict(), f'./ckpt/{current_time}/UNITER_VCR_{current_steps}_{batch_size}_{accum_steps}_{learning_rate}')
+                torch.save(model.state_dict(), f'./ckpt/{current_time}/{ckpt_short}_{current_steps}_{batch_size}_{accum_steps}_{learning_rate}')
 
             if current_steps == num_train_steps:
                 breakValue = True
+                break
 
         if breakValue:
             break

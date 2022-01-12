@@ -15,12 +15,12 @@ torch.random.manual_seed(42)
 
 # config 
 parser = argparse.ArgumentParser(description='Config')
-parser.add_argument('--ckpt', type=str, default='ckpt/UNITER_2nd_45000_32_4')
+parser.add_argument('--ckpt', type=str, default='ckpt/1641908734.63464/UNITER_VCR_8000_16_5_6e-05')
 parser.add_argument('--config', type=str, default='config/uniter-base_vcr.json')
 parser.add_argument('--data_type', type=str, default='val')
 args = parser.parse_args()
 
-val_batch_size = 40
+val_batch_size = 64
 
 print('Loading dataset...')
 val_dataset = ValidationDataForVCR(data_type=args.data_type)
