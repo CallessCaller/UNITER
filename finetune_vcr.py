@@ -35,7 +35,7 @@ num_train_steps = args.train_step
 ckpt = args.ckpt
 ckpt_short = ckpt.split('/')[1].replace('.pt', '')
 warmup_steps = num_train_steps / 10
-valid_steps = 2000
+valid_steps = 1000 if num_train_steps / 10 < 1000 else num_train_steps /10
 val_batch_size = 64
 learning_rate = 6e-05
 
