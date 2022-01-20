@@ -1,5 +1,5 @@
 # UNITER
-UNITER without docker image. You can use any version of Pytorch and CUDA (Pytorch 1.9.0 & CUDA 11,10,9)
+UNITER without docker image. You can use any version of Pytorch and CUDA (Pytorch 1.9.0 & CUDA 11)
 
 Only VCR data is supported.
 
