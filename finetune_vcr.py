@@ -25,6 +25,8 @@ parser = argparse.ArgumentParser(description='Config')
 parser.add_argument('--batch_size', type=int, default=16)
 parser.add_argument('--accum_step', type=int, default=5)
 parser.add_argument('--train_step', type=int, default=8000)
+parser.add_argument('--val_step', type=int, default=1000)
+parser.add_argument('--lr', type=float, default=6e-5)
 parser.add_argument('--ckpt', type=str, default='pretrained/uniter-base.pt')
 args = parser.parse_args()
 
@@ -35,13 +37,14 @@ num_train_steps = args.train_step
 ckpt = args.ckpt
 ckpt_short = ckpt.split('/')[1].replace('.pt', '')
 warmup_steps = num_train_steps / 10
-valid_steps = 1000 if num_train_steps / 10 < 1000 else num_train_steps /10
+valid_steps = args.val_step #1000 if num_train_steps / 10 < 1000 else num_train_steps /10
 val_batch_size = 64
-learning_rate = 6e-05
+learning_rate = args.lr
 
 import time
 import os
-current_time = time.time()
+current_time = time.localtime()
+current_time = time.strftime('%c', current_time)
 os.mkdir(f'ckpt/{current_time}')
 
 writer = SummaryWriter(f"./log_finetune/{ckpt_short}_{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
@@ -60,12 +63,14 @@ print('Done !!!')
 # model
 print('Loading model...')
 checkpoint = torch.load(ckpt)
-if 'pretrain' in ckpt:
+if '2nd' not in ckpt.lower():
     model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048)
     model.init_type_embedding()
 else:
     ## 2nd stage pretrained
     model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base_vcr.json', checkpoint, img_dim=2048)
+    if 'pretrained' in ckpt:
+        model.init_word_embedding(81)
 model.cuda()
 model.train()
 print('Done !!!')

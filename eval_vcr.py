@@ -16,11 +16,11 @@ torch.random.manual_seed(42)
 # config 
 parser = argparse.ArgumentParser(description='Config')
 parser.add_argument('--ckpt', type=str, default='ckpt/1641908734.63464/UNITER_VCR_8000_16_5_6e-05')
-parser.add_argument('--config', type=str, default='config/uniter-base_vcr.json')
 parser.add_argument('--data_type', type=str, default='val')
 args = parser.parse_args()
 
 val_batch_size = 64
+ckpt = args.ckpt
 
 print('Loading dataset...')
 val_dataset = ValidationDataForVCR(data_type=args.data_type)
@@ -29,8 +29,13 @@ print('Done !!!')
 
 # model
 print('Loading model...')
-checkpoint = torch.load(args.ckpt)
-model = UniterForVisualCommonsenseReasoning.from_pretrained(args.config, checkpoint, img_dim=2048)
+checkpoint = torch.load(ckpt)
+if 'pretrain' in ckpt:
+    model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048)
+    model.init_type_embedding()
+else:
+    ## 2nd stage pretrained
+    model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base_vcr.json', checkpoint, img_dim=2048)
 model.cuda()
 model.train()
 print('Done !!!')

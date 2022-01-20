@@ -22,13 +22,13 @@ torch.random.manual_seed(42)
 # config 
 parser = argparse.ArgumentParser(description='Config')
 parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--accum_steps', type=int, default=4)
+parser.add_argument('--accum_steps', type=int, default=64)
 args = parser.parse_args()
 
-warmup_steps = 4500
+warmup_steps = 6000
 accum_steps = args.accum_steps
-valid_steps = 3000
-num_train_steps = 45000
+valid_steps = 6000
+num_train_steps = 60000
 batch_size = args.batch_size #6144
 val_batch_size = batch_size
 learning_rate = 3e-05
