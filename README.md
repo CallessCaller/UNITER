@@ -25,13 +25,13 @@ Only VCR data is supported.
     "../vcr/vcr1annots/" and "../vcr/vcr1images/"
     and run
     ```bash
-    CUDA_VISIBLE_DEVICES=0 python pretrain_vcr.py --batch_size=64 --accum_steps=4
+    CUDA_VISIBLE_DEVICES=0 python pretrain_vcr.py --batch_size=64 --accum_step=4
     ```
     After 2nd pretraining, you will get checkpoints in ckpt directory.
 
 3. VCR Finetuning.
     ```bash
-    CUDA_VISIBLE_DEVICES=0 python finetune_vcr.py --ckpt=ckpt/UNITER_2nd_45000_64_4 --batch_size=16 --accum_steps=5 --train_step=8000
+    CUDA_VISIBLE_DEVICES=0 python finetune_vcr.py --ckpt=ckpt/UNITER_2nd_45000_64_4 --batch_size=16 --accum_step=5 --train_step=8000
     ```
     After finetuning, you will get checkpoints in ckpt/{CURRENT_TIME}/ dir. (ex. ckpt/1641951775.0276442/UNITER_VCR_8000_16_5_6e-05)
 

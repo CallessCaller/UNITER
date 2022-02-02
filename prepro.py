@@ -13,11 +13,19 @@ import random
 from toolz.sandbox import unzip
 from cytoolz import concat
 import copy
+import lmdb
+
+import msgpack
+import msgpack_numpy
+msgpack_numpy.patch()
 
 annotPATH = '/mnt3/user16/vcr/vcr1annots/'
 imagePATH = '/mnt3/user16/vcr/vcr1images/'
 # annotPATH = '/home/vcr/vcr1annots/'
 # imagePATH = '/home/vcr/vcr1images/'
+
+tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+tokenizer.max_length = 220
 
 
 '''
@@ -56,16 +64,28 @@ class PretrainDataForVCR(Dataset):
     def __init__(self, data_type='train'):
         super().__init__()
         self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
-        self.tokenzier = BertTokenizer.from_pretrained('bert-base-cased')
-        self.tokenzier.max_length = 220
+        self.data_type = data_type
+        # tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+        # tokenizer.max_length = 220
+        self.db = lmdb.open(f'/mnt3/user16/vcr/vcr1uniter/img_db/vcr_{data_type}/feat_th0.2_max100_min10/', readonly=True, create=False)
+        self.db_begin = self.db.begin(buffers=True)
+
+        self.db_gt = lmdb.open(f'/mnt3/user16/vcr/vcr1uniter/img_db/vcr_gt_{data_type}/feat_numbb100/', readonly=True, create=False)
+        self.db_gt_begin = self.db_gt.begin(buffers=True)
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, index):
-        question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False)
-        answer = self.tokenzier(list_to_str_only(self.data.answer_choices[index][self.data.answer_label[index]]), return_token_type_ids=False)
-        rationale = self.tokenzier(list_to_str_only(self.data.rationale_choices[index][self.data.answer_label[index]]), return_token_type_ids=False)
+        with open(imagePATH + self.data.metadata_fn[index], 'r') as f:
+            metadata = json.load(f)
+        names = metadata['names']
+        q_str, _ = list_to_str_only(self.data.question[index], names)
+        a_str, _ = list_to_str_only(self.data.answer_choices[index][self.data.answer_label[index]], names)
+        r_str, _ = list_to_str_only(self.data.rationale_choices[index][self.data.answer_label[index]], names)
+        question = tokenizer(q_str, return_token_type_ids=False)
+        answer = tokenizer(a_str, return_token_type_ids=False)
+        rationale = tokenizer(r_str, return_token_type_ids=False)
         # type_id
         # 0 -- question
         # 1 -- region
@@ -85,23 +105,29 @@ class PretrainDataForVCR(Dataset):
         
         token_type_ids = [0 for _ in range(len(question['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))] + [3 for _ in range(len(rationale['input_ids'][1:]))]
 
-        with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
-            feature = pickle.load(f)
-        
-        roi_feature = feature['roi_features']
-        softlabel = feature['softlabels']
-        nb = roi_feature.shape[1]
+        fname = self.data.metadata_fn[index].split('/')[-1][:-5]
+        img = self.db_begin.get(f'vcr_{self.data_type}_{fname}.npz'.encode('utf-8'))
+        img_msg = msgpack.loads(img, raw=False)
+        #survivor = np.reshape(img['conf'] > 0.2, (-1))
+        features = torch.Tensor(img_msg['features']).float()
+        bbs = torch.Tensor(img_msg['norm_bb']).float()
+        img_bb = torch.cat([bbs, bbs[:, 4:5]*bbs[:, 5:]], dim=-1)
+        soft_labels = torch.Tensor(img_msg['soft_labels']).float()
+
+        img_gt = self.db_gt_begin.get(f'vcr_gt_{self.data_type}_{fname}.npz'.encode('utf-8'))
+        img_gt_msg = msgpack.loads(img_gt, raw=False)
+        features_gt = torch.Tensor(img_gt_msg['features']).float()
+        bbs_gt = torch.Tensor(img_gt_msg['norm_bb']).float()
+        img_bb_gt = torch.cat([bbs_gt, bbs_gt[:, 4:5]*bbs_gt[:, 5:]], dim=-1)
+        soft_labels_gt = torch.Tensor(img_gt_msg['soft_labels']).float()
+
+        nb = features_gt.shape[0] + features.shape[0]
+        roi_feature = torch.cat([features_gt, features], dim=0)
+        softlabel = torch.cat([soft_labels_gt, soft_labels], dim=0)
+        pos = torch.cat([img_bb_gt, img_bb], dim=0)
+
         attention_mask = [1 for _ in range(nb)] + question['attention_mask'] + answer['attention_mask'][1:] + rationale['attention_mask'][1:]
 
-        width = feature['normalized_boxes'][:,:,2] - feature['normalized_boxes'][:,:,0]
-        height = feature['normalized_boxes'][:,:,3] - feature['normalized_boxes'][:,:,1]
-        a = width * height
-
-        pos = torch.cat((feature['normalized_boxes'], width.unsqueeze(-1)), dim=-1)
-        pos = torch.cat((pos, height.unsqueeze(-1)), dim=-1)
-        pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
-
-        
         # for mrfr, mrc
         img_mask = _get_img_mask(0.15, nb)
         img_mask_tgt = _get_img_tgt_mask(img_mask, len(tokenzied))
@@ -109,13 +135,14 @@ class PretrainDataForVCR(Dataset):
         return (torch.Tensor(tokenzied),
                 torch.Tensor(token_type_ids),
                 torch.Tensor(attention_mask),
-                roi_feature.squeeze(0),
-                pos.squeeze(0),
-                softlabel.squeeze(0),
+                roi_feature,
+                pos,
+                softlabel,
                 torch.Tensor(maksed_tokenzied),
                 torch.Tensor(txt_label),
                 img_mask.float(),
                 img_mask_tgt.float())
+
 
 def collate(batch):
     (input_ids, txt_type_ids, attn_masks, img_feat, img_pos, softlabel, maksed_tokenzied, txt_label, img_mask, img_mask_tgt) = map(list, unzip(batch))
@@ -194,39 +221,63 @@ class FinetuneDataForVCR(Dataset):
     def __init__(self, data_type='train', task='qa'):
         super().__init__()
         self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
-        self.tokenzier = BertTokenizer.from_pretrained('bert-base-cased')
-        self.tokenzier.max_length = 220
+        # tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+        # tokenizer.max_length = 220
         self.task = task
+
+        self.db = lmdb.open('/mnt3/user16/vcr/vcr1uniter/img_db/vcr_train/feat_th0.2_max100_min10/', readonly=True, create=False)
+        self.db_begin = self.db.begin(buffers=True)
+
+        self.db_gt = lmdb.open('/mnt3/user16/vcr/vcr1uniter/img_db/vcr_gt_train/feat_numbb100/', readonly=True, create=False)
+        self.db_gt_begin = self.db_gt.begin(buffers=True)
 
     def __len__(self):
         return len(self.data)
 
+    def __del__(self):
+        self.db.close()
+        self.db_gt.close()
+
     def __getitem__(self, index):
         #preprocessing for image
-        with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
-            feature = pickle.load(f)
-        
-        roi_feature = feature['roi_features']
-        nb = roi_feature.shape[1]
+        fname = self.data.metadata_fn[index].split('/')[-1][:-5]
+        img = self.db_begin.get(f'vcr_train_{fname}.npz'.encode('utf-8'))
+        img_msg = msgpack.loads(img, raw=False)
+        #survivor = np.reshape(img['conf'] > 0.2, (-1))
+        features = torch.Tensor(img_msg['features']).float()
+        bbs = torch.Tensor(img_msg['norm_bb']).float()
+        img_bb = torch.cat([bbs, bbs[:, 4:5]*bbs[:, 5:]], dim=-1)
+        #soft_labels = torch.Tensor(img['soft_labels']).float()
 
-        width = feature['normalized_boxes'][:,:,2] - feature['normalized_boxes'][:,:,0]
-        height = feature['normalized_boxes'][:,:,3] - feature['normalized_boxes'][:,:,1]
-        a = width * height
+        img_gt = self.db_gt_begin.get(f'vcr_gt_train_{fname}.npz'.encode('utf-8'))
+        img_gt_msg = msgpack.loads(img_gt, raw=False)
+        features_gt = torch.Tensor(img_gt_msg['features']).float()
+        bbs_gt = torch.Tensor(img_gt_msg['norm_bb']).float()
+        img_bb_gt = torch.cat([bbs_gt, bbs_gt[:, 4:5]*bbs_gt[:, 5:]], dim=-1)
+        #soft_labels_gt = torch.Tensor(img_gt['soft_labels']).float()
 
-        pos = torch.cat((feature['normalized_boxes'], width.unsqueeze(-1)), dim=-1)
-        pos = torch.cat((pos, height.unsqueeze(-1)), dim=-1)
-        pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
+        nb = features_gt.shape[0] + features.shape[0]
+        roi_feature = torch.cat([features_gt, features], dim=0)
+        pos = torch.cat([img_bb_gt, img_bb], dim=0)
 
-        question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False, return_attention_mask=False)
+        with open(imagePATH + self.data.metadata_fn[index], 'r') as f:
+            metadata = json.load(f)
+        names = metadata['names']
+
+        q_str, new_tokens = list_to_str_only(self.data.question[index], names)
+        # tokenizer.add_tokens(new_tokens)
+        question = tokenizer(q_str, return_token_type_ids=False, return_attention_mask=False)
         answer_choices = self.data.answer_choices[index]
-
+        
         answer_label = self.data.answer_label[index]
         rationale_label = self.data.rationale_label[index]
         if self.task == 'qa':
             # qa
             out = []
             for i, answer_choice in enumerate(answer_choices):
-                answer = self.tokenzier(list_to_str_only(answer_choice), return_token_type_ids=False, return_attention_mask=False)
+                a_str, new_tokens = list_to_str_only(answer_choice, names)
+                # tokenizer.add_tokens(new_tokens)
+                answer = tokenizer(a_str, return_token_type_ids=False, return_attention_mask=False)
                 tmp = copy.deepcopy(question)
                 tokenized = tmp['input_ids'] + answer['input_ids'][1:]
                 token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
@@ -240,15 +291,19 @@ class FinetuneDataForVCR(Dataset):
                 else:
                     target = torch.Tensor([0]).long()
                 out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                            roi_feature.squeeze(0), pos.squeeze(0),
+                            roi_feature, pos,
                             torch.Tensor(attention_mask), target))
         else:
             # qar
             rationale_choices = self.data.rationale_choices[index]
-            answer =  self.tokenzier(list_to_str_only(answer_choices[answer_label]), return_token_type_ids=False, return_attention_mask=False)
+            a_str, new_tokens = list_to_str_only(answer_choices[answer_label], names)
+            # tokenizer.add_tokens(new_tokens)
+            answer =  tokenizer(a_str, return_token_type_ids=False, return_attention_mask=False)
             out = []
             for i, rationale_choice in enumerate(rationale_choices):
-                rationale = self.tokenzier(list_to_str_only(rationale_choice), return_token_type_ids=False, return_attention_mask=False)
+                r_str, new_tokens = list_to_str_only(rationale_choice, names)
+                # tokenizer.add_tokens(new_tokens)
+                rationale = tokenizer(r_str, return_token_type_ids=False, return_attention_mask=False)
                 tmp = copy.deepcopy(question)
                 tmp_a = copy.deepcopy(answer)
                 tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
@@ -263,9 +318,8 @@ class FinetuneDataForVCR(Dataset):
                 else:
                     target = torch.Tensor([0])
                 out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                            roi_feature.squeeze(0), pos.squeeze(0),
+                            roi_feature, pos,
                             torch.Tensor(attention_mask), target))
-        
         return tuple(out)
 
 def vcr_collate(inputs):
@@ -304,9 +358,15 @@ class ValidationDataForVCR(Dataset):
     def __init__(self, data_type='val'):
         super().__init__()
         self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
-        self.tokenzier = BertTokenizer.from_pretrained('bert-base-cased')
-        self.tokenzier.max_length = 220
+        # tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+        # tokenizer.max_length = 220
         self.data_type = data_type
+
+        self.db = lmdb.open('/mnt3/user16/vcr/vcr1uniter/img_db/vcr_val/feat_th0.2_max100_min10/', readonly=True, create=False)
+        self.db_begin = self.db.begin(buffers=True)
+
+        self.db_gt = lmdb.open('/mnt3/user16/vcr/vcr1uniter/img_db/vcr_gt_val/feat_numbb100/', readonly=True, create=False)
+        self.db_gt_begin = self.db_gt.begin(buffers=True)
 
     def __len__(self):
         return len(self.data)
@@ -316,47 +376,62 @@ class ValidationDataForVCR(Dataset):
         qid = index
         qa_target = torch.Tensor([self.data.answer_label[index]])
         qar_target = torch.Tensor([self.data.rationale_label[index]])
-        if 'gd' not in self.data_type:    
-            with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
-                feature = pickle.load(f)
-        else:
-            with open(imagePATH + self.data.metadata_fn[index][:-5] + '.pickle', 'rb') as f:
-                feature = pickle.load(f)
-        
-        roi_feature = feature['roi_features']
-        nb = roi_feature.shape[1]
 
-        width = feature['normalized_boxes'][:,:,2] - feature['normalized_boxes'][:,:,0]
-        height = feature['normalized_boxes'][:,:,3] - feature['normalized_boxes'][:,:,1]
-        a = width * height
+        fname = self.data.metadata_fn[index].split('/')[-1][:-5]
+        img = self.db_begin.get(f'vcr_val_{fname}.npz'.encode('utf-8'))
+        img_msg = msgpack.loads(img, raw=False)
+        #survivor = np.reshape(img['conf'] > 0.2, (-1))
+        features = torch.Tensor(img_msg['features']).float()
+        bbs = torch.Tensor(img_msg['norm_bb']).float()
+        img_bb = torch.cat([bbs, bbs[:, 4:5]*bbs[:, 5:]], dim=-1)
+        #soft_labels = torch.Tensor(img['soft_labels']).float()
 
-        pos = torch.cat((feature['normalized_boxes'], width.unsqueeze(-1)), dim=-1)
-        pos = torch.cat((pos, height.unsqueeze(-1)), dim=-1)
-        pos = torch.cat((pos, a.unsqueeze(-1)), dim=-1)
+        img_gt = self.db_gt_begin.get(f'vcr_gt_val_{fname}.npz'.encode('utf-8'))
+        img_gt_msg = msgpack.loads(img_gt, raw=False)
+        features_gt = torch.Tensor(img_gt_msg['features']).float()
+        bbs_gt = torch.Tensor(img_gt_msg['norm_bb']).float()
+        img_bb_gt = torch.cat([bbs_gt, bbs_gt[:, 4:5]*bbs_gt[:, 5:]], dim=-1)
+        #soft_labels_gt = torch.Tensor(img_gt['soft_labels']).float()
+
+        nb = features_gt.shape[0] + features.shape[0]
+        roi_feature = torch.cat([features_gt, features], dim=0)
+        pos = torch.cat([img_bb_gt, img_bb], dim=0)
+
+        with open(imagePATH + self.data.metadata_fn[index], 'r') as f:
+            metadata = json.load(f)
+        names = metadata['names']
         
         out = []
 
-        question = self.tokenzier(list_to_str_only(self.data.question[index]), return_token_type_ids=False)
+        q_str, new_tokens = list_to_str_only(self.data.question[index], names)
+        # tokenizer.add_tokens(new_tokens)
+        question = tokenizer(q_str, return_token_type_ids=False)
         answer_choices = self.data.answer_choices[index]
 
         answer_label = self.data.answer_label[index]
 
         for i, answer_choice in enumerate(answer_choices):
-            answer = self.tokenzier(list_to_str_only(answer_choice), return_token_type_ids=False)
+            a_str, new_tokens = list_to_str_only(answer_choice, names)
+            # tokenizer.add_tokens(new_tokens)
+            answer = tokenizer(a_str, return_token_type_ids=False)
             tmp = copy.deepcopy(question)
             tokenized = tmp['input_ids'] + answer['input_ids'][1:]
             token_type_ids = [0 for _ in range(len(tmp['input_ids']))] + [2 for _ in range(len(answer['input_ids'][1:]))]
             attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + answer['attention_mask'][1:]
 
             out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                        roi_feature.squeeze(0), pos.squeeze(0),
+                        roi_feature, pos,
                         torch.Tensor(attention_mask)))
 
         rationale_choices = self.data.rationale_choices[index]
-        answer =  self.tokenzier(list_to_str_only(answer_choices[answer_label]), return_token_type_ids=False)
+        a_str, new_tokens = list_to_str_only(answer_choices[answer_label], names)
+        # tokenizer.add_tokens(new_tokens)
+        answer =  tokenizer(a_str, return_token_type_ids=False)
 
         for i, rationale_choice in enumerate(rationale_choices):
-            rationale = self.tokenzier(list_to_str_only(rationale_choice), return_token_type_ids=False)
+            r_str, new_tokens = list_to_str_only(rationale_choice, names)
+            # tokenizer.add_tokens(new_tokens)
+            rationale = tokenizer(r_str, return_token_type_ids=False)
             tmp = copy.deepcopy(question)
             tmp_a = copy.deepcopy(answer)
             tokenized = tmp['input_ids'] + tmp_a['input_ids'][1:] + rationale['input_ids'][1:]
@@ -364,7 +439,7 @@ class ValidationDataForVCR(Dataset):
             attention_mask = [1 for _ in range(nb)] + tmp['attention_mask'] + tmp_a['attention_mask'][1:] + rationale['attention_mask'][1:]
 
             out.append((torch.Tensor(tokenized), torch.Tensor(token_type_ids),
-                        roi_feature.squeeze(0), pos.squeeze(0),
+                        roi_feature, pos,
                         torch.Tensor(attention_mask)))
 
         return tuple(out), qid, qa_target, qar_target
@@ -413,11 +488,19 @@ def vcr_val_collate(inputs):
 F.kl_div(F.log_softmax(k, 0), F.softmax(k1, 0), reduction="none").mean()
 '''
 
-def list_to_str_only(text_list):
+def list_to_str_only(text_list, name):
+    new_tokens = []
+    new_text = ''
     for i, ele in enumerate(text_list):
         if type(ele) == type([]):
-            text_list[i] = str(ele)
-    return " ".join(text_list)
+            for e in ele:
+                tmp = name[int(e)] + f'_{e}'
+                new_text += tmp
+                new_tokens.append(tmp)
+        else:
+            new_text += ele
+        new_text += ' '
+    return new_text, new_tokens
 
 
 # From UNITER repo

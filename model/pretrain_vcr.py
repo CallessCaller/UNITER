@@ -136,7 +136,7 @@ class UniterForPretrainingForVCR(UniterForPretraining):
         # torch.Size([6291456, 768])
 
         prediction_soft_label = self.region_classifier(masked_output)
-        prediction_soft_label = prediction_soft_label[:, :-1]
+        #prediction_soft_label = prediction_soft_label[:, :-1]
 
         if compute_loss:
             prediction_soft_label = F.log_softmax(

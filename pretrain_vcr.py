@@ -25,13 +25,13 @@ parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--accum_steps', type=int, default=64)
 args = parser.parse_args()
 
-warmup_steps = 6000
+warmup_steps = 4500
 accum_steps = args.accum_steps
 valid_steps = 6000
 num_train_steps = 60000
 batch_size = args.batch_size #6144
 val_batch_size = batch_size
-learning_rate = 3e-05
+learning_rate = 3e-4
 
 import time
 writer = SummaryWriter(f"./log/{batch_size}_{accum_steps}_{time.time()}")
@@ -156,11 +156,11 @@ with tqdm(total=num_train_steps) as pbar:
                 #print(f"Epoch: {epoch} Current_step: {current_steps}|")
                 for i, batch in enumerate(train_dataloader):
                         task_prob = torch.rand(1)
-                        if task_prob > 0.66:
+                        if task_prob > 0.5:
                                 task = 'mlm'
                                 batch['input_ids'] = batch['masked_input_ids']
                                 mlm_steps += 1
-                        elif task_prob > 0.33:
+                        elif task_prob > 0.25:
                                 task = 'mrc'
                                 batch['img_feat'] = batch['masked_img_feat']
                                 mrc_steps += 1
