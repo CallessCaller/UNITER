@@ -107,7 +107,7 @@ def validate(model, val_loader):
         scores = model(batch, compute_loss=False)
         targets = batch['targets'].cuda()
         factual_labels = batch['counterfactual_mask'].view(-1).cuda()
-        loss = F.cross_entropy(scores, targets, reduction='none')
+        loss = F.cross_entropy(scores, targets.squeeze(-1), reduction='none')
 
         prediction = torch.argmax(scores, dim=-1) # 64, 1
         right = prediction == targets
@@ -183,16 +183,16 @@ with tqdm(total=num_train_steps) as pbar:
             current_steps += 1
             pbar.update(1)
 
-            writer.add_scalar("cf_train/lr", optimizer.param_groups[0]['lr'], current_steps)
-            writer.add_scalar("cf_train/loss", loss_sum/accum_steps, current_steps)
-            writer.add_scalar("cf_train/loss_factual", factual_total/accum_steps, current_steps)
-            writer.add_scalar("cf_train/loss_counterfactual", counterfactual_total/accum_steps, current_steps)
+            if current_steps // 100:
+                writer.add_scalar("cf_train/lr", optimizer.param_groups[0]['lr'], current_steps)
+                writer.add_scalar("cf_train/loss", loss_sum/accum_steps, current_steps)
+                writer.add_scalar("cf_train/loss_factual", factual_total/accum_steps, current_steps)
+                writer.add_scalar("cf_train/loss_counterfactual", counterfactual_total/accum_steps, current_steps)
+                writer.flush()
 
             loss_sum = 0
             factual_total = 0
             counterfactual_total = 0
-
-            writer.flush()
 
             # validation & model save
             if current_steps % valid_steps == 0:
