@@ -19,9 +19,9 @@ torch.random.manual_seed(42) # 42, 29837, 854769803
 # config 
 parser = argparse.ArgumentParser(description='Config')
 parser.add_argument('--batch_size', type=int, default=2)
-parser.add_argument('--accum_step', type=int, default=16)
+parser.add_argument('--accum_step', type=int, default=8)
 parser.add_argument('--train_step', type=int, default=80000)
-parser.add_argument('--val_step', type=int, default=10000)
+parser.add_argument('--val_step', type=int, default=4000)
 parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--ckpt', type=str, default='pretrained/uniter-base.pt')
 args = parser.parse_args()
@@ -33,7 +33,7 @@ num_train_steps = args.train_step
 ckpt = args.ckpt
 warmup_steps = num_train_steps // 10
 valid_steps = args.val_step #1000 if num_train_steps / 10 < 1000 else num_train_steps /10
-val_batch_size = 4
+val_batch_size = 2
 learning_rate = args.lr
 
 print('Loading dataset...')
@@ -91,63 +91,69 @@ def compute_accuracies(out_qa, labels_qa, out_qar, labels_qar):
 
 @torch.no_grad()
 def validate(model, val_loader):
-    print('Start running validation...')
+    print('Start validation...')
     model.eval()
-    val_qa_loss, val_qar_loss = 0, 0
-    tot_qa_score, tot_qar_score, tot_score = 0, 0, 0
-    n_ex = 0
+
+    right_total = 0
+    factual_total = 0
+    counterfactual_total = 0
+    n_sample = 0
+    n_negative = 0
+
+    loss_total = 0
+    loss_f = 0
+    loss_c = 0
     for i, batch in enumerate(tqdm(val_loader)):
         scores = model(batch, compute_loss=False)
-        qa_targets = batch['qa_targets'].cuda()
-        qar_targets = batch['qar_targets'].cuda()
-        qids = batch['qids']
-        scores = scores.view(len(qids), -1)
-        vcr_qa_loss = F.cross_entropy(
-                scores[:, :4], qa_targets.squeeze(-1), reduction="sum")
-        if scores.shape[1] > 8:
-            qar_scores = []
-            for batch_id in range(scores.shape[0]):
-                answer_ind = qa_targets[batch_id].item()
-                qar_index = [4+answer_ind*4+i
-                             for i in range(4)]
-                qar_scores.append(scores[batch_id, qar_index])
-            qar_scores = torch.stack(qar_scores, dim=0)
-        else:
-            qar_scores = scores[:, 4:]
-        # print(qar_scores, qar_targets)
-        # tensor([], device='cuda:0', size=(10, 0))
-        vcr_qar_loss = F.cross_entropy(
-            qar_scores, qar_targets.squeeze(-1), reduction="sum")
-        val_qa_loss += vcr_qa_loss.item()
-        val_qar_loss += vcr_qar_loss.item()
-        curr_qa_score, curr_qar_score, curr_score = compute_accuracies(
-            scores[:, :4], qa_targets, qar_scores, qar_targets)
-        tot_qar_score += curr_qar_score
-        tot_qa_score += curr_qa_score
-        tot_score += curr_score
-        n_ex += len(qids)
+        targets = batch['targets'].cuda()
+        factual_labels = batch['counterfactual_mask'].view(-1).cuda()
+        loss = F.cross_entropy(scores, targets, reduction='none')
 
-    val_qa_loss /= n_ex
-    val_qar_loss /= n_ex
-    val_qa_acc = tot_qa_score / n_ex
-    val_qar_acc = tot_qar_score / n_ex
-    val_acc = tot_score / n_ex
+        prediction = torch.argmax(scores, dim=-1) # 64, 1
+        right = prediction == targets
+        factual = prediction[factual_labels==1] == targets[factual_labels==1]
+        counterfactual = prediction[factual_labels==0] == targets[factual_labels==0]
 
-    writer.add_scalar("valid/vcr_qa_loss", val_qa_loss, current_steps)
-    writer.add_scalar("valid/vcr_qar_loss", val_qar_loss, current_steps)
-    writer.add_scalar("valid/acc_qa", val_qa_acc, current_steps)
-    writer.add_scalar("valid/acc_qar", val_qar_acc, current_steps)
-    writer.add_scalar("valid/acc", val_acc, current_steps)
-    print(f"Score_qa: {val_qa_acc*100:.2f} | Score_qar: {val_qar_acc*100:.2f} | Score_total: {val_acc*100:.2f}")
+        right_total += right.sum().item()
+        factual_total += factual.sum().item()
+        counterfactual_total += counterfactual.sum().item()
+
+        n_sample += factual_labels.sum().item()
+        n_negative += targets.shape[0] - factual_labels.sum().item()
+
+        loss_total += loss.sum().item()
+        loss_f += loss[factual_labels==1].sum().item()
+        loss_c += loss[factual_labels==0].sum().item()
+
+    right_total /= (n_sample + n_negative)
+    factual_total /= n_sample
+    counterfactual_total /= n_negative
+
+    loss_total /= (n_sample + n_negative)
+    loss_f /= n_sample
+    loss_c /= n_negative
+
+    writer.add_scalar("cf_valid/loss_total", loss_total, current_steps)
+    writer.add_scalar("cf_valid/loss_f", loss_f, current_steps)
+    writer.add_scalar("cf_valid/loss_c", loss_c, current_steps)
+    writer.add_scalar("cf_valid/acc_total", right_total, current_steps)
+    writer.add_scalar("cf_valid/acc_f", factual_total, current_steps)
+    writer.add_scalar("cf_valid/acc_c", counterfactual_total, current_steps)
+
+    print(f"Loss_total: {loss_total:.4f} | Loss_c: {loss_f:.4f} | Loss_w: {loss_c:.4f}")
+    print(f"Score_total: {right_total*100:.2f} | Score_c: {factual_total*100:.2f} | Score_w: {counterfactual_total*100:.2f}")
     writer.flush()
     model.train()
+    return
 
 
+factual_total = 0
+counterfactual_total = 0
 with tqdm(total=num_train_steps) as pbar:
     for epoch in range(100):
         print(f'Epoch: {epoch}')
         for i, batch in enumerate(train_dataloader):
-            factual_labels = batch['counterfactual_mask'].cuda()
+            factual_labels = batch['counterfactual_mask'].view(-1).cuda()
             with amp.autocast():
                 loss = model(batch, compute_loss=True)
                 f_loss = loss[factual_labels==1]
@@ -156,10 +162,12 @@ with tqdm(total=num_train_steps) as pbar:
                 f_loss = f_loss.mean()
                 c_loss = c_loss.mean()
 
-                total_loss = f_loss + max(0, 0.3-c_loss) 
+                total_loss = f_loss + max(0, 0.4-c_loss) 
 
             scaler.scale(total_loss).backward()
             loss_sum += total_loss.item()
+            factual_total += f_loss.item()
+            counterfactual_total += c_loss.item()
             accum += 1
 
             if accum != accum_steps:
@@ -175,12 +183,14 @@ with tqdm(total=num_train_steps) as pbar:
             current_steps += 1
             pbar.update(1)
 
-            writer.add_scalar("train/lr", optimizer.param_groups[0]['lr'], current_steps)
-            writer.add_scalar("train/loss", loss_sum/accum_steps, current_steps)
-            writer.add_scalar("train/loss_factual", f_loss, current_steps)
-            writer.add_scalar("train/loss_counterfactual", c_loss, current_steps)
+            writer.add_scalar("cf_train/lr", optimizer.param_groups[0]['lr'], current_steps)
+            writer.add_scalar("cf_train/loss", loss_sum/accum_steps, current_steps)
+            writer.add_scalar("cf_train/loss_factual", factual_total/accum_steps, current_steps)
+            writer.add_scalar("cf_train/loss_counterfactual", counterfactual_total/accum_steps, current_steps)
 
             loss_sum = 0
+            factual_total = 0
+            counterfactual_total = 0
 
             writer.flush()
 

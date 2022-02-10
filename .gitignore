@@ -15,6 +15,7 @@ pretrained/
 log/
 log_finetune/
 log_eval/
+log_counterfactual/
 build/
 develop-eggs/
 dist/

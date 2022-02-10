@@ -84,11 +84,11 @@ class UniterForVisualCausalReasoning(UniterPreTrainedModel):
     def __init__(self, config, img_dim):
         super().__init__(config, img_dim)
         self.uniter = UniterModel(config, img_dim)
-        self.vcr_output = nn.Sequential(
-            nn.Linear(config.hidden_size, config.hidden_size*2),
+        self.counterfactual_output = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size),
             nn.ReLU(),
-            LayerNorm(config.hidden_size*2, eps=1e-12),
-            nn.Linear(config.hidden_size*2, 3)
+            LayerNorm(config.hidden_size, eps=1e-12),
+            nn.Linear(config.hidden_size, 3)
         )
         self.apply(self.init_weights)
 
@@ -127,7 +127,7 @@ class UniterForVisualCausalReasoning(UniterPreTrainedModel):
                                       output_all_encoded_layers=False,
                                       txt_type_ids=txt_type_ids)
         pooled_output = self.uniter.pooler(sequence_output)
-        rank_scores = self.vcr_output(pooled_output)
+        rank_scores = self.counterfactual_output(pooled_output)
 
         if compute_loss:
             targets = batch['targets'].cuda()
@@ -136,5 +136,4 @@ class UniterForVisualCausalReasoning(UniterPreTrainedModel):
                     reduction='none')
             return vcr_loss
         else:
-            rank_scores = rank_scores[:, 1:]
             return rank_scores

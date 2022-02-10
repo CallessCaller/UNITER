@@ -19,7 +19,7 @@ import msgpack
 import msgpack_numpy
 msgpack_numpy.patch()
 
-annotPATH = '/mnt3/user16/vcr/vcr1annots/'
+annotPATH = '/mnt3/user16/vcr/visualcomet/'
 imagePATH = '/mnt3/user16/vcr/vcr1images/'
 
 tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
@@ -31,7 +31,8 @@ tokenizer.max_length = 220
 class PretrainDataForVCR(Dataset):
     def __init__(self, data_type='train'):
         super().__init__()
-        self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
+        with open(annotPATH + data_type + '_annots.json', 'r') as f:
+            self.data = json.load(f)
         self.data_type = data_type
         self.db = lmdb.open(f'/mnt3/user16/vcr/vcr1uniter/img_db/vcr_{data_type}/feat_th0.2_max100_min10/', readonly=True, create=False)
         self.db_begin = self.db.begin(buffers=True)
