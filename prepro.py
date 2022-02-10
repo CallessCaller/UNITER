@@ -357,7 +357,11 @@ def vcr_collate(inputs):
 class ValidationDataForVCR(Dataset):
     def __init__(self, data_type='val'):
         super().__init__()
-        self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
+        if 'custom' in data_type:
+            with open(data_type, 'rb') as f:
+                self.data = pickle.load(f)
+        else:
+            self.data = pd.read_json(path_or_buf=annotPATH + data_type + '.jsonl', lines=True)
         # tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
         # tokenizer.max_length = 220
         self.data_type = data_type
@@ -494,7 +498,10 @@ def list_to_str_only(text_list, name):
     for i, ele in enumerate(text_list):
         if type(ele) == type([]):
             for e in ele:
-                tmp = name[int(e)] + f'_{e}'
+                if len(name)-1 < int(e):
+                    tmp = f'{e}'
+                else:
+                    tmp = name[int(e)] + f'_{e}'
                 new_text += tmp
                 new_tokens.append(tmp)
         else:

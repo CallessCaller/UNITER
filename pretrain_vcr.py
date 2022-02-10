@@ -17,12 +17,12 @@ import argparse
 from torch.utils.tensorboard import SummaryWriter
 
 # random seed
-torch.random.manual_seed(42)
+torch.random.manual_seed(29837)
 
 # config 
 parser = argparse.ArgumentParser(description='Config')
-parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--accum_steps', type=int, default=64)
+parser.add_argument('--batch_size', type=int, default=32)
+parser.add_argument('--accum_steps', type=int, default=16)
 args = parser.parse_args()
 
 warmup_steps = 4500
@@ -151,7 +151,7 @@ def validate(model, val_dataloader):
 
 model.train()
 with tqdm(total=num_train_steps) as pbar:
-        for epoch in range(100):
+        for epoch in range(200):
                 #validate(model, val_dataloader)
                 #print(f"Epoch: {epoch} Current_step: {current_steps}|")
                 for i, batch in enumerate(train_dataloader):
@@ -178,16 +178,15 @@ with tqdm(total=num_train_steps) as pbar:
                         loss_sum += loss.item()
                         accum += 1
 
+                        if accum != accum_steps:
+                                continue
+
                         if task == 'mlm':
                                 writer.add_scalar("pre_train/loss_mlm", loss.item(), current_steps)
                         elif task == 'mrc':
                                 writer.add_scalar("pre_train/loss_mrc", loss.item(), current_steps)
                         else:
                                 writer.add_scalar("pre_train/loss_mrfr", loss.item(), current_steps)
-
-                        if accum != accum_steps:
-                                writer.flush()
-                                continue
                         
                         scaler.step(optimizer)
                         scaler.update()

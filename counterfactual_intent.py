@@ -4,15 +4,11 @@ import torch.cuda.amp as amp
 import torch.cuda.amp.autocast_mode
 from torch.utils.data import DataLoader, ConcatDataset
 
-from model.vcr import UniterForVisualCommonsenseReasoning
-from prepro import FinetuneDataForVCR, ValidationDataForVCR, vcr_collate, vcr_val_collate
+from model.vcr import UniterForVisualCausalReasoning
+from prepro_counterfactual import PretrainDataForVCR, vcr_collate
 from transformers import AdamW, get_linear_schedule_with_warmup
 
-import json
-import numpy as np
-import pandas as pd
 from tqdm import tqdm
-
 import argparse
 
 from torch.utils.tensorboard import SummaryWriter
@@ -22,11 +18,11 @@ torch.random.manual_seed(42) # 42, 29837, 854769803
 
 # config 
 parser = argparse.ArgumentParser(description='Config')
-parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--accum_step', type=int, default=64)
-parser.add_argument('--train_step', type=int, default=8000)
-parser.add_argument('--val_step', type=int, default=1000)
-parser.add_argument('--lr', type=float, default=6e-5)
+parser.add_argument('--batch_size', type=int, default=2)
+parser.add_argument('--accum_step', type=int, default=16)
+parser.add_argument('--train_step', type=int, default=80000)
+parser.add_argument('--val_step', type=int, default=10000)
+parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--ckpt', type=str, default='pretrained/uniter-base.pt')
 args = parser.parse_args()
 
@@ -35,45 +31,35 @@ batch_size = args.batch_size #4000
 accum_steps = args.accum_step
 num_train_steps = args.train_step
 ckpt = args.ckpt
-ckpt_short = ckpt.split('/')[1].replace('.pt', '')
 warmup_steps = num_train_steps // 10
 valid_steps = args.val_step #1000 if num_train_steps / 10 < 1000 else num_train_steps /10
-val_batch_size = 64
+val_batch_size = 4
 learning_rate = args.lr
 
-import time
-import os
-current_time = time.localtime()
-current_time = time.strftime('%c', current_time)
-os.mkdir(f'ckpt/{current_time}')
-
-writer = SummaryWriter(f"./log_finetune/{ckpt_short}_{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
-
 print('Loading dataset...')
-qa_dataset = FinetuneDataForVCR(data_type='train', task='qa')
-qar_dataset = FinetuneDataForVCR(data_type='train', task='qar')
-
-train_dataset = ConcatDataset([qa_dataset, qar_dataset])
+train_dataset = PretrainDataForVCR(data_type='train')
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=vcr_collate, num_workers=10)
 
-val_dataset = ValidationDataForVCR(data_type='val')
-val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, collate_fn=vcr_val_collate, num_workers=10)
+val_dataset = PretrainDataForVCR(data_type='val')
+val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, collate_fn=vcr_collate, num_workers=10)
 print('Done !!!')
 
 # model
 print('Loading model...')
 checkpoint = torch.load(ckpt)
-if '2nd' not in ckpt.lower():
-    model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048)
-    model.init_type_embedding()
-else:
-    ## 2nd stage pretrained
-    model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base_vcr.json', checkpoint, img_dim=2048)
-    # if 'pretrained' in ckpt:
-    #     model.init_word_embedding(81)
+model = UniterForVisualCausalReasoning.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048)
+model.init_type_embedding()
 model.cuda()
 model.train()
 print('Done !!!')
+
+import time
+import os
+current_time = time.localtime()
+current_time = time.strftime('%c', current_time)
+os.mkdir(f'ckpt/counterfactual_{current_time}')
+
+writer = SummaryWriter(f"./log_counterfactual/{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
 
 param_optimizer = list(model.named_parameters())
 no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
@@ -159,13 +145,21 @@ def validate(model, val_loader):
 
 with tqdm(total=num_train_steps) as pbar:
     for epoch in range(100):
+        print(f'Epoch: {epoch}')
         for i, batch in enumerate(train_dataloader):
+            factual_labels = batch['counterfactual_mask'].cuda()
             with amp.autocast():
                 loss = model(batch, compute_loss=True)
-                loss = loss.mean()
+                f_loss = loss[factual_labels==1]
+                c_loss = loss[factual_labels==0]
 
-            scaler.scale(loss).backward()
-            loss_sum += loss.item()
+                f_loss = f_loss.mean()
+                c_loss = c_loss.mean()
+
+                total_loss = f_loss + max(0, 0.3-c_loss) 
+
+            scaler.scale(total_loss).backward()
+            loss_sum += total_loss.item()
             accum += 1
 
             if accum != accum_steps:
@@ -182,7 +176,9 @@ with tqdm(total=num_train_steps) as pbar:
             pbar.update(1)
 
             writer.add_scalar("train/lr", optimizer.param_groups[0]['lr'], current_steps)
-            writer.add_scalar("train/total_loss", loss_sum/accum_steps, current_steps)
+            writer.add_scalar("train/loss", loss_sum/accum_steps, current_steps)
+            writer.add_scalar("train/loss_factual", f_loss, current_steps)
+            writer.add_scalar("train/loss_counterfactual", c_loss, current_steps)
 
             loss_sum = 0
 
@@ -191,7 +187,7 @@ with tqdm(total=num_train_steps) as pbar:
             # validation & model save
             if current_steps % valid_steps == 0:
                 validate(model, val_dataloader)
-                torch.save(model.state_dict(), f'./ckpt/{current_time}/{ckpt_short}_{current_steps}_{batch_size}_{accum_steps}_{learning_rate}')
+                torch.save(model.state_dict(), f'./ckpt/{current_time}/{current_steps}_{batch_size}_{accum_steps}_{learning_rate}')
 
             if current_steps == num_train_steps:
                 breakValue = True
@@ -199,3 +195,4 @@ with tqdm(total=num_train_steps) as pbar:
 
         if breakValue:
             break
+        

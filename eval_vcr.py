@@ -15,11 +15,11 @@ torch.random.manual_seed(42)
 
 # config 
 parser = argparse.ArgumentParser(description='Config')
-parser.add_argument('--ckpt', type=str, default='ckpt/1641908734.63464/UNITER_VCR_8000_16_5_6e-05')
-parser.add_argument('--data_type', type=str, default='val')
+parser.add_argument('--ckpt', type=str, default='ckpt/Thu Feb  3 12:18:23 2022/uniter-base_5000_16_64_0.0001')
+parser.add_argument('--data_type', type=str, default='custom_data/changed_data_2000')
 args = parser.parse_args()
 
-val_batch_size = 64
+val_batch_size = 16
 ckpt = args.ckpt
 
 print('Loading dataset...')
