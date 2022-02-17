@@ -498,10 +498,11 @@ def list_to_str_only(text_list, name):
     for i, ele in enumerate(text_list):
         if type(ele) == type([]):
             for e in ele:
-                if len(name)-1 < int(e):
-                    tmp = f'{e}'
-                else:
-                    tmp = name[int(e)] + f'_{e}'
+                # if len(name)-1 < int(e):
+                #     tmp = f'{e} '
+                # else:
+                #     tmp = name[int(e)] + f'_{e} '
+                tmp = f'{e} '
                 new_text += tmp
                 new_tokens.append(tmp)
         else:

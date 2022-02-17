@@ -1,3 +1,4 @@
+import pickle
 import torch
 import torch.nn.functional as F
 import torch.cuda.amp as amp
@@ -15,7 +16,7 @@ torch.random.manual_seed(42)
 
 # config 
 parser = argparse.ArgumentParser(description='Config')
-parser.add_argument('--ckpt', type=str, default='ckpt/Thu Feb  3 12:18:23 2022/uniter-base_5000_16_64_0.0001')
+parser.add_argument('--ckpt', type=str, default='ckpt/Sun Feb  6 13:36:00 2022/uniter-base_5000_16_64_0.0001')
 parser.add_argument('--data_type', type=str, default='custom_data/changed_data_2000')
 args = parser.parse_args()
 
@@ -40,8 +41,8 @@ model.cuda()
 model.train()
 print('Done !!!')
 
-
 current_steps = 0
+
 
 def compute_accuracies(out_qa, labels_qa, out_qar, labels_qar):
     outputs_qa = out_qa.max(dim=-1)[1]
@@ -58,6 +59,10 @@ def compute_accuracies(out_qa, labels_qa, out_qar, labels_qar):
 def validate(model, val_loader):
     print('Start running validation...')
     model.eval()
+    qa_prediction = []
+    qa_label = []
+    qar_prediction = []
+    qar_label = []
     val_qa_loss, val_qar_loss = 0, 0
     tot_qa_score, tot_qar_score, tot_score = 0, 0, 0
     n_ex = 0
@@ -79,8 +84,11 @@ def validate(model, val_loader):
             qar_scores = torch.stack(qar_scores, dim=0)
         else:
             qar_scores = scores[:, 4:]
-        # print(qar_scores, qar_targets)
-        # tensor([], device='cuda:0', size=(10, 0))
+        
+        qa_prediction += torch.argmax(scores[:, :4], dim=-1).tolist()
+        qa_label += qa_targets.view(-1).tolist()
+        qar_prediction += torch.argmax(scores[:, 4:], dim=-1).tolist()
+        qar_label += qar_targets.view(-1).tolist()
         vcr_qar_loss = F.cross_entropy(
             qar_scores, qar_targets.squeeze(-1), reduction="sum")
         val_qa_loss += vcr_qa_loss.item()
@@ -99,9 +107,21 @@ def validate(model, val_loader):
     val_acc = tot_score / n_ex
 
     print(f"Score_qa: {val_qa_acc*100:.2f} | Score_qar: {val_qar_acc*100:.2f} | Score_total: {val_acc*100:.2f}")
-    model.train()
+    
+    return qa_prediction, qa_label, qar_prediction, qar_label
 
-validate(model, val_dataloader)
+qa_prediction, qa_label, qar_prediction, qar_label = validate(model, val_dataloader)
+
+if 'counterfactual' in args.ckpt:
+    save_path = 'counterfactual'
+else:
+    save_path = 'uniter'
+
+with open(save_path + '.pickle', 'wb') as f:
+    pickle.dump(qa_prediction, f)
+    pickle.dump(qa_label, f)
+    pickle.dump(qar_prediction, f)
+    pickle.dump(qar_label, f)
 
 if 'gd' in args.data_type:
     region_list = ['gd_val_ea', 'gd_val_w', 'gd_val_sa', 'gd_val_a']

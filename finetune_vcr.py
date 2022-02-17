@@ -63,7 +63,7 @@ print('Done !!!')
 # model
 print('Loading model...')
 checkpoint = torch.load(ckpt)
-if '2nd' not in ckpt.lower():
+if '2nd' not in ckpt.lower() and 'counterfactual' not in ckpt.lower():
     model = UniterForVisualCommonsenseReasoning.from_pretrained('config/uniter-base.json', checkpoint, img_dim=2048)
     model.init_type_embedding()
 else:

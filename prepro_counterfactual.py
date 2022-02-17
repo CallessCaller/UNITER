@@ -69,7 +69,7 @@ class PretrainDataForVCR(Dataset):
 
         # counterfactual cf
         cf_index = index
-        while cf_index == index:
+        while cf_index == index or self.data[cf_index]['metadata_fn'] == self.data[index]['metadata_fn'] or self.data[cf_index]['intent'] == self.data[index]['intent']:
             cf_index = np.random.randint(len(self.data)-1)
         cf_intent = ','.join(self.data[cf_index]['intent'])
 

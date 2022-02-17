@@ -19,11 +19,12 @@ torch.random.manual_seed(42) # 42, 29837, 854769803
 # config 
 parser = argparse.ArgumentParser(description='Config')
 parser.add_argument('--batch_size', type=int, default=2)
-parser.add_argument('--accum_step', type=int, default=8)
-parser.add_argument('--train_step', type=int, default=80000)
-parser.add_argument('--val_step', type=int, default=4000)
-parser.add_argument('--lr', type=float, default=1e-4)
+parser.add_argument('--accum_step', type=int, default=32)
+parser.add_argument('--train_step', type=int, default=20000)
+parser.add_argument('--val_step', type=int, default=1000)
+parser.add_argument('--lr', type=float, default=6e-5)
 parser.add_argument('--ckpt', type=str, default='pretrained/uniter-base.pt')
+parser.add_argument('--eval_only', type=str, default=False)
 args = parser.parse_args()
 
 
@@ -35,6 +36,9 @@ warmup_steps = num_train_steps // 10
 valid_steps = args.val_step #1000 if num_train_steps / 10 < 1000 else num_train_steps /10
 val_batch_size = 2
 learning_rate = args.lr
+
+if args.eval_only:
+    valid_steps = 1
 
 print('Loading dataset...')
 train_dataset = PretrainDataForVCR(data_type='train')
@@ -57,9 +61,11 @@ import time
 import os
 current_time = time.localtime()
 current_time = time.strftime('%c', current_time)
-os.mkdir(f'ckpt/counterfactual_{current_time}')
-
-writer = SummaryWriter(f"./log_counterfactual/{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
+if args.eval_only == False:
+    os.mkdir(f'ckpt/counterfactual_{current_time}')
+    writer = SummaryWriter(f"./log_counterfactual/{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
+else:
+    writer = SummaryWriter(f"./test/{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
 
 param_optimizer = list(model.named_parameters())
 no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
@@ -105,7 +111,7 @@ def validate(model, val_loader):
     loss_c = 0
     for i, batch in enumerate(tqdm(val_loader)):
         scores = model(batch, compute_loss=False)
-        targets = batch['targets'].cuda()
+        targets = batch['targets'].view(-1).cuda()
         factual_labels = batch['counterfactual_mask'].view(-1).cuda()
         loss = F.cross_entropy(scores, targets.squeeze(-1), reduction='none')
 
@@ -136,12 +142,12 @@ def validate(model, val_loader):
     writer.add_scalar("cf_valid/loss_total", loss_total, current_steps)
     writer.add_scalar("cf_valid/loss_f", loss_f, current_steps)
     writer.add_scalar("cf_valid/loss_c", loss_c, current_steps)
-    writer.add_scalar("cf_valid/acc_total", right_total, current_steps)
-    writer.add_scalar("cf_valid/acc_f", factual_total, current_steps)
-    writer.add_scalar("cf_valid/acc_c", counterfactual_total, current_steps)
+    writer.add_scalar("cf_valid/acc_total", right_total*100, current_steps)
+    writer.add_scalar("cf_valid/acc_f", factual_total*100, current_steps)
+    writer.add_scalar("cf_valid/acc_c", counterfactual_total*100, current_steps)
 
     print(f"Loss_total: {loss_total:.4f} | Loss_c: {loss_f:.4f} | Loss_w: {loss_c:.4f}")
-    print(f"Score_total: {right_total*100:.2f} | Score_c: {factual_total*100:.2f} | Score_w: {counterfactual_total*100:.2f}")
+    print(f"Score_total: {right_total:.2f} | Score_c: {factual_total:.2f} | Score_w: {counterfactual_total:.2f}")
     writer.flush()
     model.train()
     return
@@ -149,6 +155,7 @@ def validate(model, val_loader):
 
 factual_total = 0
 counterfactual_total = 0
+optimizer.zero_grad()
 with tqdm(total=num_train_steps) as pbar:
     for epoch in range(100):
         print(f'Epoch: {epoch}')
@@ -162,7 +169,7 @@ with tqdm(total=num_train_steps) as pbar:
                 f_loss = f_loss.mean()
                 c_loss = c_loss.mean()
 
-                total_loss = f_loss + max(0, 0.4-c_loss) 
+                total_loss = f_loss + max(0, 0.5-c_loss) 
 
             scaler.scale(total_loss).backward()
             loss_sum += total_loss.item()
@@ -171,24 +178,23 @@ with tqdm(total=num_train_steps) as pbar:
             accum += 1
 
             if accum != accum_steps:
-                writer.flush()
                 continue
 
             scaler.step(optimizer)
             scaler.update()
-            scheduler.step()
             optimizer.zero_grad()
+            scheduler.step()
 
             accum = 0
             current_steps += 1
             pbar.update(1)
 
-            if current_steps // 100:
-                writer.add_scalar("cf_train/lr", optimizer.param_groups[0]['lr'], current_steps)
-                writer.add_scalar("cf_train/loss", loss_sum/accum_steps, current_steps)
-                writer.add_scalar("cf_train/loss_factual", factual_total/accum_steps, current_steps)
-                writer.add_scalar("cf_train/loss_counterfactual", counterfactual_total/accum_steps, current_steps)
-                writer.flush()
+            # if current_steps % 50 == 0:
+            writer.add_scalar("cf_train/lr", optimizer.param_groups[0]['lr'], current_steps)
+            writer.add_scalar("cf_train/loss", loss_sum/accum_steps, current_steps)
+            writer.add_scalar("cf_train/loss_factual", factual_total/accum_steps, current_steps)
+            writer.add_scalar("cf_train/loss_counterfactual", counterfactual_total/accum_steps, current_steps)
+            writer.flush()
 
             loss_sum = 0
             factual_total = 0
@@ -197,7 +203,7 @@ with tqdm(total=num_train_steps) as pbar:
             # validation & model save
             if current_steps % valid_steps == 0:
                 validate(model, val_dataloader)
-                torch.save(model.state_dict(), f'./ckpt/{current_time}/{current_steps}_{batch_size}_{accum_steps}_{learning_rate}')
+                torch.save(model.state_dict(), f'ckpt/counterfactual_{current_time}/{current_steps}_{batch_size}_{accum_steps}_{learning_rate}')
 
             if current_steps == num_train_steps:
                 breakValue = True
