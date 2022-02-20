@@ -5,7 +5,7 @@ import torch.cuda.amp.autocast_mode
 from torch.utils.data import DataLoader, ConcatDataset
 
 from model.vcr import UniterForVisualCommonsenseReasoning
-from prepro import FinetuneDataForVCR, ValidationDataForVCR, vcr_collate, vcr_val_collate
+from prepro import ValidationDataForVCR_AR, vcr_val_collate_ar
 from transformers import AdamW, get_linear_schedule_with_warmup
 
 import json
@@ -22,9 +22,9 @@ torch.random.manual_seed(42) # 42, 29837, 854769803
 
 # config 
 parser = argparse.ArgumentParser(description='Config')
-parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--accum_step', type=int, default=64)
-parser.add_argument('--train_step', type=int, default=8000)
+parser.add_argument('--batch_size', type=int, default=4)
+parser.add_argument('--accum_step', type=int, default=128) # 기존 모델과 같은 문제 수  4*128
+parser.add_argument('--train_step', type=int, default=5000)
 parser.add_argument('--val_step', type=int, default=1000)
 parser.add_argument('--lr', type=float, default=6e-5)
 parser.add_argument('--ckpt', type=str, default='pretrained/uniter-base.pt')
@@ -50,14 +50,11 @@ os.mkdir(f'ckpt/{current_time}')
 writer = SummaryWriter(f"./log_finetune/{ckpt_short}_{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
 
 print('Loading dataset...')
-qa_dataset = FinetuneDataForVCR(data_type='train', task='qa')
-qar_dataset = FinetuneDataForVCR(data_type='train', task='qar')
+train_dataset = ValidationDataForVCR_AR(data_type='train')
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=vcr_val_collate_ar, num_workers=10)
 
-train_dataset = ConcatDataset([qa_dataset, qar_dataset])
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=vcr_collate, num_workers=10)
-
-val_dataset = ValidationDataForVCR(data_type='val')
-val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, collate_fn=vcr_val_collate, num_workers=10)
+val_dataset = ValidationDataForVCR_AR(data_type='val')
+val_dataloader = DataLoader(val_dataset, batch_size=val_batch_size, shuffle=False, collate_fn=vcr_val_collate_ar, num_workers=10)
 print('Done !!!')
 
 # model
@@ -87,6 +84,8 @@ optimizer = AdamW(optimizer_grouped_parameters, lr=learning_rate)
 scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, num_train_steps)
 scaler = amp.GradScaler()
 loss_sum = 0
+cls_sum = 0
+kl_sum = 0
 accum = 0
 
 current_steps = 0
@@ -119,17 +118,17 @@ def validate(model, val_loader):
         vcr_qa_loss = F.cross_entropy(
                 scores[:, :4], qa_targets.squeeze(-1), reduction="sum")
         if scores.shape[1] > 8:
-            qar_scores = []
-            for batch_id in range(scores.shape[0]):
-                answer_ind = qa_targets[batch_id].item()
-                qar_index = [4+answer_ind*4+i
-                             for i in range(4)]
-                qar_scores.append(scores[batch_id, qar_index])
-            qar_scores = torch.stack(qar_scores, dim=0)
+            # qar_scores = []
+            # for batch_id in range(scores.shape[0]):
+            #     answer_ind = qa_targets[batch_id].item()
+            #     qar_index = [4+answer_ind*4+i
+            #                  for i in range(4)]
+            #     qar_scores.append(scores[batch_id, qar_index])
+            # qar_scores = torch.stack(qar_scores, dim=0)
+            qar_scores = scores[:, 4:8] - scores[:, 8:]
         else:
             qar_scores = scores[:, 4:]
-        # print(qar_scores, qar_targets)
-        # tensor([], device='cuda:0', size=(10, 0))
+
         vcr_qar_loss = F.cross_entropy(
             qar_scores, qar_targets.squeeze(-1), reduction="sum")
         val_qa_loss += vcr_qa_loss.item()
@@ -156,16 +155,43 @@ def validate(model, val_loader):
     writer.flush()
     model.train()
 
+kl = torch.nn.KLDivLoss(reduction='batchmean')
 
 with tqdm(total=num_train_steps) as pbar:
     for epoch in range(100):
         for i, batch in enumerate(train_dataloader):
             with amp.autocast():
-                loss = model(batch, compute_loss=True)
-                loss = loss.mean()
+                scores = model(batch, compute_loss=False, return_full_score=True) # b,2
+                qa_targets = batch['qa_targets'].cuda()
+                qar_targets = batch['qar_targets'].cuda()
+                targets = batch['targets'].cuda() # b, 1
+                qids = batch['qids']
+
+                scores_for_loss = scores.view(len(qids), 12, 2) # q, 12, 2
+                targets = targets.view(len(qids), -1) #  q, 12
+
+                vcr_loss = F.cross_entropy(scores_for_loss[:, :8, :].reshape(-1, 2), targets[:, :8].reshape(-1), reduction="none")
+                vcr_qar_bias_loss = kl(scores_for_loss[:, 8:, :].reshape(-1, 2).log_softmax(dim=-1), 
+                                       scores_for_loss[:, 4:8, :].reshape(-1, 2).softmax(dim=-1))
+
+                scores = scores[:, 1:]
+                scores = scores.view(len(qids), -1) # q, 12
+                outputs_qa = scores[:, :4].max(dim=-1)[1]
+                outputs_qar = scores[:, 4:8].max(dim=-1)[1]
+                matched_qa = outputs_qa.squeeze() == qa_targets.squeeze()
+                matched_qar = outputs_qar.squeeze() == qar_targets.squeeze()
+                matched_joined = matched_qa & matched_qar
+
+                vcr_loss = vcr_loss.view(len(qids), -1)
+                vcr_loss[matched_joined == 0] *= 2
+                vcr_loss = vcr_loss.mean()
+
+                loss = vcr_loss + vcr_qar_bias_loss
 
             scaler.scale(loss).backward()
             loss_sum += loss.item()
+            cls_sum += vcr_loss.item()
+            kl_sum += vcr_qar_bias_loss.item()
             accum += 1
 
             if accum != accum_steps:
@@ -183,8 +209,12 @@ with tqdm(total=num_train_steps) as pbar:
 
             writer.add_scalar("train/lr", optimizer.param_groups[0]['lr'], current_steps)
             writer.add_scalar("train/total_loss", loss_sum/accum_steps, current_steps)
+            writer.add_scalar("train/cls_loss", cls_sum/accum_steps, current_steps)
+            writer.add_scalar("train/kl_loss", kl_sum/accum_steps, current_steps)
 
             loss_sum = 0
+            cls_sum = 0
+            kl_sum = 0
 
             writer.flush()
 

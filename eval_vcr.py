@@ -16,8 +16,8 @@ torch.random.manual_seed(42)
 
 # config 
 parser = argparse.ArgumentParser(description='Config')
-parser.add_argument('--ckpt', type=str, default='ckpt/Sun Feb  6 13:36:00 2022/uniter-base_5000_16_64_0.0001')
-parser.add_argument('--data_type', type=str, default='custom_data/changed_data_2000')
+parser.add_argument('--ckpt', type=str, default='ckpt/Sat Feb 19 15:31:51 2022/uniter-base_3000_4_128_0.0001')
+parser.add_argument('--data_type', type=str, default='val')
 args = parser.parse_args()
 
 val_batch_size = 16

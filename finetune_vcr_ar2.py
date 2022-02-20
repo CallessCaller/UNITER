@@ -5,12 +5,13 @@ import torch.cuda.amp.autocast_mode
 from torch.utils.data import DataLoader, ConcatDataset
 
 from model.vcr import UniterForVisualCommonsenseReasoning
-from prepro import FinetuneDataForVCR, ValidationDataForVCR, vcr_collate, vcr_val_collate
+from prepro_ar import FinetuneDataForVCR, ValidationDataForVCR, vcr_collate, vcr_val_collate
 from transformers import AdamW, get_linear_schedule_with_warmup
 
 import json
 import numpy as np
 import pandas as pd
+import shutil
 from tqdm import tqdm
 
 import argparse
@@ -22,12 +23,13 @@ torch.random.manual_seed(42) # 42, 29837, 854769803
 
 # config 
 parser = argparse.ArgumentParser(description='Config')
-parser.add_argument('--batch_size', type=int, default=16)
-parser.add_argument('--accum_step', type=int, default=64)
-parser.add_argument('--train_step', type=int, default=8000)
+parser.add_argument('--batch_size', type=int, default=4)
+parser.add_argument('--accum_step', type=int, default=256)
+parser.add_argument('--train_step', type=int, default=5000)
 parser.add_argument('--val_step', type=int, default=1000)
-parser.add_argument('--lr', type=float, default=6e-5)
+parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--ckpt', type=str, default='pretrained/uniter-base.pt')
+parser.add_argument('--output', type=str, default='experiments/finetune_ar_cf')
 args = parser.parse_args()
 
 
@@ -45,9 +47,10 @@ import time
 import os
 current_time = time.localtime()
 current_time = time.strftime('%c', current_time)
-os.mkdir(f'ckpt/{current_time}')
 
-writer = SummaryWriter(f"./log_finetune/{ckpt_short}_{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
+if os.path.isdir(args.output):
+    shutil.rmtree(args.output)
+writer = SummaryWriter(args.output)
 
 print('Loading dataset...')
 qa_dataset = FinetuneDataForVCR(data_type='train', task='qa')
@@ -160,8 +163,21 @@ def validate(model, val_loader):
 with tqdm(total=num_train_steps) as pbar:
     for epoch in range(100):
         for i, batch in enumerate(train_dataloader):
+            factual_target = batch['factual_targets'].cuda().squeeze(-1)
+            target = batch['targets'].cuda()
             with amp.autocast():
-                loss = model(batch, compute_loss=True)
+                score = model(batch, compute_loss=False, return_full_score=True)
+
+                f_score = score[factual_target == 1]
+                f_target = target[factual_target == 1]
+
+                c_score = score[factual_target == 0]
+                c_target = target[factual_target == 0]
+
+                f_loss = F.cross_entropy(f_score, f_target.squeeze(-1),reduction='mean')
+                c_loss = F.cross_entropy(c_score, c_target.squeeze(-1),reduction='mean')
+
+                loss = f_loss + max(0, 0.35-c_loss)
                 loss = loss.mean()
 
             scaler.scale(loss).backward()
@@ -191,7 +207,7 @@ with tqdm(total=num_train_steps) as pbar:
             # validation & model save
             if current_steps % valid_steps == 0:
                 validate(model, val_dataloader)
-                torch.save(model.state_dict(), f'./ckpt/{current_time}/{ckpt_short}_{current_steps}_{batch_size}_{accum_steps}_{learning_rate}')
+                torch.save(model.state_dict(), f'{args.output}/{current_steps}_{batch_size}_{accum_steps}_{learning_rate}')
 
             if current_steps == num_train_steps:
                 breakValue = True

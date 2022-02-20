@@ -11,6 +11,7 @@ __pycache__/
 ckpt/
 custom_data/
 ckpt_prev/
+experiments/
 pretrained/
 log/
 log_finetune/

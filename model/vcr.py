@@ -50,7 +50,7 @@ class UniterForVisualCommonsenseReasoning(UniterPreTrainedModel):
         new_emb.weight.data[:orig_word_num, :].copy_(emb)
         self.uniter.embeddings.word_embeddings = new_emb
 
-    def forward(self, batch, compute_loss=True):
+    def forward(self, batch, compute_loss=True, return_full_score=False):
         batch = defaultdict(lambda: None, batch)
         input_ids = batch['input_ids'].cuda()
         position_ids = batch['position_ids'].cuda()
@@ -74,7 +74,8 @@ class UniterForVisualCommonsenseReasoning(UniterPreTrainedModel):
                     reduction='mean')
             return vcr_loss
         else:
-            rank_scores = rank_scores[:, 1:]
+            if not return_full_score:
+                rank_scores = rank_scores[:, 1:]
             return rank_scores
 
 
