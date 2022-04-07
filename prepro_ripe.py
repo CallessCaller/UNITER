@@ -35,7 +35,7 @@ class FinetuneDataForVCR(Dataset):
         # tokenizer.max_length = 220
         self.task = task
 
-        self.db = lmdb.open('/mnt2/vcr/vcr_hk/collected_all/qa_1stage/img_db/img_features/feat_th0.2_max100_min10/', readonly=True, create=False)
+        self.db = lmdb.open('../vcr/gd-vcr/gd_db/gd_features/feat_th0.2_max100_min10/', readonly=True, create=False)
         self.db_begin = self.db.begin(buffers=True)
 
     def __len__(self):
@@ -161,7 +161,7 @@ class ValidationDataForVCR(Dataset):
         # tokenizer.max_length = 220
         self.data_type = data_type
 
-        self.db = lmdb.open('/mnt2/vcr/vcr_hk/collected_all/qa_1stage/img_db/img_features/feat_th0.2_max100_min10/', readonly=True, create=False)
+        self.db = lmdb.open('../vcr/gd-vcr/gd_db/gd_features/feat_th0.2_max100_min10/', readonly=True, create=False)
         self.db_begin = self.db.begin(buffers=True)
 
     def __len__(self):
