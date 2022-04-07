@@ -179,6 +179,7 @@ with tqdm(total=num_train_steps) as pbar:
 
                 loss = f_loss + max(0, 0.35-c_loss)
                 loss = loss.mean()
+                loss /= accum_steps
 
             scaler.scale(loss).backward()
             loss_sum += loss.item()
@@ -198,7 +199,7 @@ with tqdm(total=num_train_steps) as pbar:
             pbar.update(1)
 
             writer.add_scalar("train/lr", optimizer.param_groups[0]['lr'], current_steps)
-            writer.add_scalar("train/total_loss", loss_sum/accum_steps, current_steps)
+            writer.add_scalar("train/total_loss", loss_sum, current_steps)
 
             loss_sum = 0
 

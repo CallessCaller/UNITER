@@ -5,7 +5,7 @@ import torch.cuda.amp.autocast_mode
 from torch.utils.data import DataLoader, ConcatDataset
 
 from model.vcr import UniterForVisualCommonsenseReasoning
-from prepro import FinetuneDataForVCR, ValidationDataForVCR, vcr_collate, vcr_val_collate
+from prepro import FinetuneDataForVCR, ValidationDataForVCR, FinetuneDataForRIPE, vcr_collate, vcr_val_collate, vcr_collate_ripe, dataset_generator
 from transformers import AdamW, get_linear_schedule_with_warmup
 
 import json
@@ -41,19 +41,12 @@ valid_steps = args.val_step #1000 if num_train_steps / 10 < 1000 else num_train_
 val_batch_size = 16
 learning_rate = args.lr
 
-import time
-import os
-current_time = time.localtime()
-current_time = time.strftime('%c', current_time)
-os.mkdir(f'ckpt/{current_time}')
-
-writer = SummaryWriter(f"./log_finetune/{ckpt_short}_{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
-
 print('Loading dataset...')
 qa_dataset = FinetuneDataForVCR(data_type='train', task='qa')
 qar_dataset = FinetuneDataForVCR(data_type='train', task='qar')
+ripe_dataset = FinetuneDataForRIPE(data_type='train', task='qa')
 
-train_dataset = ConcatDataset([qa_dataset, qar_dataset])
+train_dataset = ConcatDataset([qa_dataset, qar_dataset, ripe_dataset])
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=vcr_collate, num_workers=10)
 
 val_dataset = ValidationDataForVCR(data_type='val')
@@ -74,6 +67,14 @@ else:
 model.cuda()
 model.train()
 print('Done !!!')
+
+import time
+import os
+current_time = time.localtime()
+current_time = time.strftime('%c', current_time)
+os.mkdir(f'ckpt/{current_time}')
+
+writer = SummaryWriter(f"./log_finetune/{ckpt_short}_{batch_size}_{accum_steps}_{learning_rate}_{current_time}")
 
 param_optimizer = list(model.named_parameters())
 no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
@@ -163,6 +164,7 @@ with tqdm(total=num_train_steps) as pbar:
             with amp.autocast():
                 loss = model(batch, compute_loss=True)
                 loss = loss.mean()
+                loss /= accum_steps
 
             scaler.scale(loss).backward()
             loss_sum += loss.item()
@@ -182,7 +184,7 @@ with tqdm(total=num_train_steps) as pbar:
             pbar.update(1)
 
             writer.add_scalar("train/lr", optimizer.param_groups[0]['lr'], current_steps)
-            writer.add_scalar("train/total_loss", loss_sum/accum_steps, current_steps)
+            writer.add_scalar("train/total_loss", loss_sum, current_steps)
 
             loss_sum = 0
 
